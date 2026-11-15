@@ -7,7 +7,7 @@ import hashlib
 import os
 import subprocess
 from pathlib import Path
-from datetime import datetime, timezone
+from sqlalchemy.engine import make_url
 
 def backup(*, destination: Path, database_url: str, runner=subprocess.run):
     if destination.exists():
@@ -24,7 +24,7 @@ def backup(*, destination: Path, database_url: str, runner=subprocess.run):
         raise FileExistsError(tmp)
     try:
         runner(["pg_dump", "--format=custom", "--no-owner", "--no-acl",
-                "--file", str(tmp), libpq_url], check=True)
+                "--file", str(tmp), conninfo], check=True, env=environment)
         runner(["pg_restore", "--list", str(tmp)], check=True,
                stdout=subprocess.DEVNULL)
         digest = hashlib.sha256(tmp.read_bytes()).hexdigest()
