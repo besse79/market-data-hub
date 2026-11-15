@@ -11,4 +11,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -e '.[test]'
+      - run: alembic upgrade head
       - run: pytest -q
+      - run: alembic downgrade base
+      - run: alembic upgrade head
