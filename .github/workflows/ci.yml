@@ -38,4 +38,4 @@ jobs:
           psql -h localhost -U mkd -d mkd -v ON_ERROR_STOP=1 -c 'CREATE DATABASE mkd_restore_test'
           python -m app.restore_verify /tmp/mkd-ci.dump
           psql -h localhost -U mkd -d mkd_restore_test -v ON_ERROR_STOP=1 -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='instruments'" | grep -qx 1
-          sha256sum -c /tmp/mkd-ci.dump.sha256
+          (cd /tmp && sha256sum -c mkd-ci.dump.sha256)
