@@ -1,0 +1,78 @@
+from datetime import date, datetime, timezone
+from uuid import UUID
+from fastapi import Depends, FastAPI, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from app.db import SessionLocal
+from app.models import Bar, FxRate, Identifier, Instrument
+
+app = FastAPI(title="MarketDataHub", version="0.1.0")
+
+def session():
+    with SessionLocal() as db:
+        yield db
+
+def cutoff(as_of: datetime) -> datetime:
+    if as_of.tzinfo is None:
+        raise HTTPException(422, "as_of must contain timezone")
+    if as_of > datetime.now(timezone.utc):
+        raise HTTPException(422, "future as_of forbidden")
+    return as_of
+
+@app.get("/health/live")
+def live():
+    return {"status": "ok"}
+
+@app.get("/v1/instruments")
+def instruments(symbol: str, mic: str, as_of: datetime, db: Session = Depends(session)):
+    at = cutoff(as_of)
+    rows = db.execute(select(Instrument, Identifier).join(Identifier).where(
+        Identifier.symbol == symbol, Identifier.mic == mic,
+        Identifier.valid_from <= at,
+        (Identifier.valid_to.is_(None) | (Identifier.valid_to > at))
+    ).limit(2)).all()
+    if not rows:
+        raise HTTPException(404, "instrument not found")
+    if len(rows) != 1:
+        raise HTTPException(409, "ambiguous instrument")
+    inst, ident = rows[0]
+    return {"instrument_id": inst.id, "name": inst.name, "symbol": ident.symbol, "mic": ident.mic, "currency": ident.currency}
+
+@app.get("/v1/bars")
+def bars(instrument_id: UUID, start: date, end: date, as_of: datetime,
+         limit: int = Query(500, ge=1, le=1000), db: Session = Depends(session)):
+    at = cutoff(as_of)
+    if end < start or end > at.date():
+        raise HTTPException(422, "invalid date range")
+    rows = db.scalars(select(Bar).where(
+        Bar.instrument_id == instrument_id, Bar.session_date >= start, Bar.session_date <= end,
+        Bar.published_at <= at, Bar.first_available_at <= at, Bar.quality_status == "valid"
+    ).order_by(Bar.session_date, Bar.provider, Bar.revision.desc()).limit(limit + 1)).all()
+    if not rows:
+        raise HTTPException(404, "no certified bars at as_of")
+    if len(rows) > limit:
+        raise HTTPException(422, "result exceeds limit; narrow date range")
+    return {"instrument_id": instrument_id, "as_of": at, "items": [
+        {"date": r.session_date, "open": r.open, "high": r.high, "low": r.low,
+         "close": r.close, "volume": r.volume, "currency": r.currency,
+         "provider": r.provider, "revision": r.revision, "published_at": r.published_at,
+         "first_available_at": r.first_available_at} for r in rows]}
+
+@app.get("/v1/fx")
+def fx(base: str, quote: str, date: date, as_of: datetime, db: Session = Depends(session)):
+    at = cutoff(as_of)
+    if base != "EUR" or quote != "USD" or date > at.date():
+        raise HTTPException(422, "unsupported pair or future date")
+    rows = db.scalars(select(FxRate).where(
+        FxRate.base == base, FxRate.quote == quote, FxRate.effective_date == date,
+        FxRate.published_at <= at, FxRate.first_available_at <= at,
+        FxRate.quality_status == "valid"
+    ).order_by(FxRate.revision.desc()).limit(2)).all()
+    if not rows:
+        raise HTTPException(404, "no certified FX at as_of")
+    if len(rows) > 1 and rows[0].revision == rows[1].revision:
+        raise HTTPException(409, "ambiguous FX provider")
+    r = rows[0]
+    return {"base": base, "quote": quote, "effective_date": date, "rate": r.rate,
+            "provider": r.provider, "revision": r.revision,
+            "published_at": r.published_at, "first_available_at": r.first_available_at}
