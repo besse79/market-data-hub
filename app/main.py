@@ -40,10 +40,12 @@ def instruments(symbol: str, mic: str, as_of: datetime, db: Session = Depends(se
 
 @app.get("/v1/bars")
 def bars(instrument_id: UUID, start: date, end: date, as_of: datetime,
-         limit: int = Query(500, ge=1, le=1000), db: Session = Depends(session)):
+         limit: int = Query(500, ge=1, le=1000), provider: str | None = None, db: Session = Depends(session)):
     at = cutoff(as_of)
     if end < start or end > at.date():
         raise HTTPException(422, "invalid date range")
+    if provider is None:
+        raise HTTPException(422, "provider required to prevent ambiguous multi-source bars")
     latest = select(Bar.instrument_id, Bar.session_date, Bar.provider, func.max(Bar.revision).label("revision")).where(
         Bar.published_at <= at, Bar.first_available_at <= at
     ).group_by(Bar.instrument_id, Bar.session_date, Bar.provider).subquery()
@@ -51,7 +53,7 @@ def bars(instrument_id: UUID, start: date, end: date, as_of: datetime,
         Bar.instrument_id == latest.c.instrument_id, Bar.session_date == latest.c.session_date,
         Bar.provider == latest.c.provider, Bar.revision == latest.c.revision
     )).where(
-        Bar.instrument_id == instrument_id, Bar.session_date >= start, Bar.session_date <= end,
+        Bar.instrument_id == instrument_id, Bar.provider == provider, Bar.session_date >= start, Bar.session_date <= end,
         Bar.published_at <= at, Bar.first_available_at <= at, Bar.quality_status == "valid"
     ).order_by(Bar.session_date, Bar.provider, Bar.revision.desc()).limit(limit + 1)).all()
     if not rows:
@@ -84,7 +86,7 @@ def fx(base: str, quote: str, date: date, as_of: datetime, db: Session = Depends
     ).order_by(FxRate.revision.desc()).limit(2)).all()
     if not rows:
         raise HTTPException(404, "no certified FX at as_of")
-    if len(rows) > 1 and rows[0].revision == rows[1].revision:
+    if len(rows) > 1:
         raise HTTPException(409, "ambiguous FX provider")
     r = rows[0]
     return {"base": base, "quote": quote, "effective_date": date, "rate": r.rate,
