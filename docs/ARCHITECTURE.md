@@ -1,7 +1,11 @@
-# MarketDataHub — architecture V1
+# MKD (MarketDataHub) — architecture V1
+
+**Codes produit : MKD = MarketDataHub, W = Weinstein'S, QE = QuantEdge, B = BuffettValue.** Les noms de dépôts GitHub existants restent inchangés.
+
+**ADR de référence :** [ADR-001 — Frontières de données MKD/W/QE/B](ADR-001-MKD-W-QE-B-DATA-BOUNDARIES.md). **Aucune migration ou modification de la base W n'est autorisée à ce stade.**
 
 ## Rôle
-Service indépendant de collecte et distribution de données de marché pour Weinstein'S, QuantEdge et BuffettValue. Aucune décision de trading dans ce dépôt.
+Service indépendant de collecte et distribution de données de marché pour W, QE et B. Aucune décision de trading dans ce dépôt.
 
 ## Périmètre V1
 - Référentiel instruments avec identifiants persistants, places de cotation, devises, statuts de cotation.
@@ -29,4 +33,4 @@ Service indépendant de collecte et distribution de données de marché pour Wei
 2. Définir le schéma versionné et les contrats d'API.
 3. Implémenter collecte incrémentale idempotente et validation.
 4. Tester les exports, sauvegardes et reprise après erreur.
-5. Brancher QuantEdge, puis BuffettValue, puis Weinstein'S après validation.
+5. Brancher QE, puis B, puis W après validation.
