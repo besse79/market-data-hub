@@ -5,6 +5,19 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: mkd
+          POSTGRES_PASSWORD: mkd
+          POSTGRES_DB: mkd
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mkd" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://mkd:mkd@localhost:5432/mkd
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
