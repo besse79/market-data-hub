@@ -17,8 +17,11 @@ def backup(*, destination: Path, database_url: str, runner=subprocess.run):
     if not database_url.startswith("postgresql"):
         raise ValueError("PostgreSQL URL required")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    # psycopg SQLAlchemy URL prefix is not understood by libpq.
-    libpq_url = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+    # Password is passed via environment, never in process arguments.
+    conninfo = url.set(drivername="postgresql", password=None).render_as_string(hide_password=False)
+    environment = os.environ.copy()
+    if url.password is not None:
+        environment["PGPASSWORD"] = url.password
     tmp = destination.with_suffix(".dump.partial")
     if tmp.exists():
         raise FileExistsError(tmp)
