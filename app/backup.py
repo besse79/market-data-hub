@@ -31,7 +31,11 @@ def backup(*, destination: Path, database_url: str, runner=subprocess.run):
                 "--file", str(tmp), conninfo], check=True, env=environment)
         runner(["pg_restore", "--list", str(tmp)], check=True,
                stdout=subprocess.DEVNULL)
-        digest = hashlib.sha256(tmp.read_bytes()).hexdigest()
+        digestor = hashlib.sha256()
+        with tmp.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digestor.update(chunk)
+        digest = digestor.hexdigest()
         if not digest or tmp.stat().st_size == 0:
             raise ValueError("empty dump")
         tmp.rename(destination)
