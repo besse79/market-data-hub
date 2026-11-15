@@ -14,7 +14,8 @@ def backup(*, destination: Path, database_url: str, runner=subprocess.run):
         raise FileExistsError(destination)
     if destination.suffix != ".dump":
         raise ValueError("backup must use .dump extension")
-    if not database_url.startswith("postgresql"):
+    url = make_url(database_url)
+    if url.get_backend_name() != "postgresql":
         raise ValueError("PostgreSQL URL required")
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Password is passed via environment, never in process arguments.
