@@ -6,10 +6,10 @@ import argparse
 import logging
 import time
 from datetime import date, datetime, timedelta, timezone
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
-from app.models import Bar, Identifier
+from app.models import Identifier
 from app.ingestion import import_bar
 from app.providers.yahoo import yahoo_daily_record
 
@@ -50,7 +50,7 @@ def collect_one(db: Session, *, instrument_id, symbol: str, currency: str,
         bar = yahoo_daily_record(
             instrument_id=str(instrument_id), session_date=session_date,
             currency=currency, open=row["Open"], high=row["High"],
-            low=row["Low"], close=row["Close"], volume=int(row["Volume"]),
+            low=row["Low"], close=row["Close"], volume=row["Volume"],
             observed_at=observed_at,
         )
         raw = dict(instrument_id=str(bar.instrument_id), session_date=bar.session_date.isoformat(),
@@ -61,8 +61,8 @@ def collect_one(db: Session, *, instrument_id, symbol: str, currency: str,
         stats[import_bar(db, raw, dry_run=dry_run)] += 1
     return stats
 
-def run(*, start: date, end: date, limit: int, dry_run: bool, delay: float):
-    if limit < 1 or delay < 0:
+def run(*, start: date, end: date, limit: int, dry_run: bool, delay: float, offset: int = 0):
+    if limit < 1 or delay < 0 or offset < 0:
         raise ValueError("invalid limit/delay")
     results = []
     with SessionLocal() as db:
@@ -71,7 +71,7 @@ def run(*, start: date, end: date, limit: int, dry_run: bool, delay: float):
         ids = db.execute(select(Identifier).where(
             Identifier.provider == "yahoo", Identifier.valid_from <= at,
             (Identifier.valid_to.is_(None) | (Identifier.valid_to > at))
-        ).order_by(Identifier.symbol).limit(limit)).scalars().all()
+        ).order_by(Identifier.symbol, Identifier.mic, Identifier.id).offset(offset).limit(limit)).scalars().all()
         for ident in ids:
             try:
                 # Each instrument is its own transaction/checkpoint.
@@ -98,13 +98,13 @@ def main():
     parser.add_argument("--start", type=date.fromisoformat, required=True)
     parser.add_argument("--end", type=date.fromisoformat, required=True,
                         help="Exclusive UTC session date")
-    parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument("--limit", type=int, default=100)\n    parser.add_argument("--offset", type=int, default=0, help="Skip earlier identifiers for deterministic batches")
     parser.add_argument("--delay", type=float, default=1.0)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     result = run(start=args.start, end=args.end, limit=args.limit,
-                 delay=args.delay, dry_run=args.dry_run)
+                 delay=args.delay, dry_run=args.dry_run, offset=args.offset)
     if any("error" in stats for _, stats in result):
         raise SystemExit(1)
 
