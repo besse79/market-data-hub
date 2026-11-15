@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from uuid import UUID
 from fastapi import Depends, FastAPI, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, func, and_
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.models import Bar, FxRate, Identifier, Instrument
@@ -44,7 +44,13 @@ def bars(instrument_id: UUID, start: date, end: date, as_of: datetime,
     at = cutoff(as_of)
     if end < start or end > at.date():
         raise HTTPException(422, "invalid date range")
-    rows = db.scalars(select(Bar).where(
+    latest = select(Bar.instrument_id, Bar.session_date, Bar.provider, func.max(Bar.revision).label("revision")).where(
+        Bar.published_at <= at, Bar.first_available_at <= at
+    ).group_by(Bar.instrument_id, Bar.session_date, Bar.provider).subquery()
+    rows = db.scalars(select(Bar).join(latest, and_(
+        Bar.instrument_id == latest.c.instrument_id, Bar.session_date == latest.c.session_date,
+        Bar.provider == latest.c.provider, Bar.revision == latest.c.revision
+    )).where(
         Bar.instrument_id == instrument_id, Bar.session_date >= start, Bar.session_date <= end,
         Bar.published_at <= at, Bar.first_available_at <= at, Bar.quality_status == "valid"
     ).order_by(Bar.session_date, Bar.provider, Bar.revision.desc()).limit(limit + 1)).all()
@@ -63,7 +69,15 @@ def fx(base: str, quote: str, date: date, as_of: datetime, db: Session = Depends
     at = cutoff(as_of)
     if base != "EUR" or quote != "USD" or date > at.date():
         raise HTTPException(422, "unsupported pair or future date")
-    rows = db.scalars(select(FxRate).where(
+    latest_fx = select(FxRate.base, FxRate.quote, FxRate.effective_date, FxRate.provider,
+                       func.max(FxRate.revision).label("revision")).where(
+        FxRate.published_at <= at, FxRate.first_available_at <= at
+    ).group_by(FxRate.base, FxRate.quote, FxRate.effective_date, FxRate.provider).subquery()
+    rows = db.scalars(select(FxRate).join(latest_fx, and_(
+        FxRate.base == latest_fx.c.base, FxRate.quote == latest_fx.c.quote,
+        FxRate.effective_date == latest_fx.c.effective_date,
+        FxRate.provider == latest_fx.c.provider, FxRate.revision == latest_fx.c.revision
+    )).where(
         FxRate.base == base, FxRate.quote == quote, FxRate.effective_date == date,
         FxRate.published_at <= at, FxRate.first_available_at <= at,
         FxRate.quality_status == "valid"
