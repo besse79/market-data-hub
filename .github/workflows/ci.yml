@@ -28,3 +28,14 @@ jobs:
       - run: pytest -q
       - run: alembic downgrade base
       - run: alembic upgrade head
+      - name: Verify real PostgreSQL backup and isolated restore
+        env:
+          PGPASSWORD: mkd
+          MKD_RESTORE_TEST_URL: postgresql+psycopg://mkd:mkd@localhost:5432/mkd_restore_test
+        run: |
+          set -euo pipefail
+          python -m app.backup /tmp/mkd-ci.dump
+          psql -h localhost -U mkd -d mkd -v ON_ERROR_STOP=1 -c 'CREATE DATABASE mkd_restore_test'
+          python -m app.restore_verify /tmp/mkd-ci.dump
+          psql -h localhost -U mkd -d mkd_restore_test -v ON_ERROR_STOP=1 -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='instruments'" | grep -qx 1
+          sha256sum -c /tmp/mkd-ci.dump.sha256
