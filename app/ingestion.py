@@ -34,7 +34,7 @@ def normalize_bar(raw: dict) -> DailyBar:
         published_at = datetime.fromisoformat(str(raw["published_at"]).replace("Z", "+00:00"))
         first_available_at = datetime.fromisoformat(str(raw["first_available_at"]).replace("Z", "+00:00"))
         open_, high, low, close, volume = validate_bar(
-            raw["open"], raw["high"], raw["low"], raw["close"], int(raw["volume"])
+            raw["open"], raw["high"], raw["low"], raw["close"], raw["volume"]
         )
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise InvalidMarketData(f"malformed EOD record: {exc}") from exc
