@@ -98,7 +98,8 @@ def main():
     parser.add_argument("--start", type=date.fromisoformat, required=True)
     parser.add_argument("--end", type=date.fromisoformat, required=True,
                         help="Exclusive UTC session date")
-    parser.add_argument("--limit", type=int, default=100)\n    parser.add_argument("--offset", type=int, default=0, help="Skip earlier identifiers for deterministic batches")
+    parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument("--offset", type=int, default=0, help="Skip earlier identifiers for deterministic batches")
     parser.add_argument("--delay", type=float, default=1.0)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
