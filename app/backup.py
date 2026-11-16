@@ -7,7 +7,7 @@ import hashlib
 import os
 import subprocess
 from pathlib import Path
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import make_url, URL
 
 def backup(*, destination: Path, database_url: str, runner=subprocess.run):
     if destination.exists():
@@ -19,7 +19,7 @@ def backup(*, destination: Path, database_url: str, runner=subprocess.run):
         raise ValueError("PostgreSQL URL required")
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Password is passed via environment, never in process arguments.
-    conninfo = url.set(drivername="postgresql", password=None).render_as_string(hide_password=False)
+    conninfo = URL.create("postgresql", username=url.username, host=url.host, port=url.port, database=url.database, query=url.query).render_as_string(hide_password=False)
     environment = os.environ.copy()
     if url.password is not None:
         environment["PGPASSWORD"] = url.password
