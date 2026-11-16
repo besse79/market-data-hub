@@ -8,7 +8,7 @@ import hashlib
 import os
 import subprocess
 from pathlib import Path
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import make_url, URL
 
 def verify_checksum(dump: Path):
     if not dump.is_file() or dump.suffix != ".dump":
@@ -40,7 +40,7 @@ def restore_to_empty(*, dump: Path, source_url: str, target_url: str,
     env = os.environ.copy()
     if target.password is not None:
         env["PGPASSWORD"] = target.password
-    conninfo = target.set(drivername="postgresql", password=None).render_as_string(hide_password=False)
+    conninfo = URL.create("postgresql", username=target.username, host=target.host, port=target.port, database=target.database, query=target.query).render_as_string(hide_password=False)
     # Refuse nonempty target before invoking pg_restore. No destructive cleanup.
     probe = runner(["psql", "--no-psqlrc", "--tuples-only", "--no-align",
                     "--dbname", conninfo, "--command",
