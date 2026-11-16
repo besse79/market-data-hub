@@ -34,6 +34,14 @@ python -m app.collector --start 2021-11-16 --end 2026-11-16 --limit 100 --offset
 python -m app.audit --output ./artifacts/coverage-after.json
 ```
 
+Après la collecte, comparer automatiquement le manifeste W exporté et la couverture MKD :
+
+```bash
+python -m app.parity /tmp/w_instruments.csv ./artifacts/coverage-after.json --output ./artifacts/parity-identifiers.json
+```
+
+Cette commande est strictement hors ligne et ne lit aucune base W. Elle échoue en cas de titre manquant/supplémentaire, devise divergente ou historique insuffisant. Même en cas de succès, `ohlcv_parity_verified` reste `false` : un rapprochement indépendant des bougies OHLCV W/MKD reste obligatoire.
+
 Ne jamais déclarer « 806/806 validés » sur la seule base de ces commandes : vérifier les dates, le nombre de séances, les rejets, les ajustements Yahoo, les devises et les éventuelles révisions contre un export W en lecture seule.
 
 ## Test de restauration non destructif
