@@ -55,3 +55,21 @@ def test_refuse_existing_checksum_without_running_dump(tmp_path):
     runner.assert_not_called()
     assert sidecar.read_text(encoding="utf-8") == "existing checksum"
     assert not path.exists()
+
+
+def test_backup_rejects_invalid_archive_and_cleans_partial(tmp_path):
+    calls = []
+    def fake_run(args, **kwargs):
+        calls.append(args[0])
+        if args[0] == "pg_dump":
+            Path(args[args.index("--file") + 1]).write_bytes(b"invalid dump")
+        elif args[0] == "pg_restore":
+            raise RuntimeError("archive validation failed")
+        return Mock(returncode=0)
+    path = tmp_path / "mkd.dump"
+    with pytest.raises(RuntimeError, match="archive validation failed"):
+        backup(destination=path, database_url="postgresql://localhost/mkd", runner=fake_run)
+    assert calls == ["pg_dump", "pg_restore"]
+    assert not path.exists()
+    assert not path.with_suffix(".dump.partial").exists()
+    assert not path.with_suffix(".dump.sha256").exists()
