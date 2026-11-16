@@ -39,13 +39,14 @@ class Bar(Base):
     low: Mapped[float] = mapped_column(Numeric(24, 8))
     close: Mapped[float] = mapped_column(Numeric(24, 8))
     volume: Mapped[int] = mapped_column(BigInteger)
-    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    first_available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    first_available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     quality_status: Mapped[str] = mapped_column(String(20), default="valid")
     __table_args__ = (
         UniqueConstraint("instrument_id", "session_date", "provider", "revision", name="uq_bar_revision"),
         CheckConstraint("high >= open AND high >= close AND high >= low AND low <= open AND low <= close AND low >= 0 AND volume >= 0", name="valid_ohlcv"),
+        CheckConstraint("(quality_status = 'legacy_unverified' AND published_at IS NULL AND first_available_at IS NULL) OR (quality_status <> 'legacy_unverified' AND published_at IS NOT NULL AND first_available_at IS NOT NULL)", name="bar_provenance_timestamps"),
     )
 
 class FxRate(Base):
