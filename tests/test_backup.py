@@ -43,3 +43,15 @@ def test_backup_does_not_expose_password_in_process_arguments(tmp_path):
     assert "very-secret" not in " ".join(dump_args)
     assert dump_kwargs["env"]["PGPASSWORD"] == "very-secret"
     assert "very-secret" not in str(calls[1][0])
+
+
+def test_refuse_existing_checksum_without_running_dump(tmp_path):
+    path = tmp_path / "mkd.dump"
+    sidecar = path.with_suffix(".dump.sha256")
+    sidecar.write_text("existing checksum", encoding="utf-8")
+    runner = Mock()
+    with pytest.raises(FileExistsError):
+        backup(destination=path, database_url="postgresql://localhost/mkd", runner=runner)
+    runner.assert_not_called()
+    assert sidecar.read_text(encoding="utf-8") == "existing checksum"
+    assert not path.exists()
