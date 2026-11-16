@@ -1,9 +1,8 @@
 """Read-only MKD coverage audit. Produces machine-readable evidence, not a parity claim."""
 import argparse
 import json
-from datetime import date
 from pathlib import Path
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func
 from app.db import SessionLocal
 from app.models import Bar, Identifier, Instrument
 
@@ -37,17 +36,48 @@ def coverage(db, *, minimum_sessions: int = 1000):
             "missing": sum(x["status"] == "missing" for x in items),
             "minimum_sessions": minimum_sessions, "instruments": items}
 
+def reconcile_manifest(report: dict, manifest_rows: list[dict], *, expected: int | None = None):
+    """Compare exact symbol/MIC/currency keys without guessing identities."""
+    def key(row):
+        return (row["symbol"].strip().upper(), row["mic"].strip().upper(),
+                row["currency"].strip().upper())
+    wanted = [key(row) for row in manifest_rows]
+    actual = [key(row) for row in report["instruments"]]
+    wanted_set, actual_set = set(wanted), set(actual)
+    result = {
+        "expected_count": expected,
+        "manifest_count": len(wanted),
+        "mkd_count": len(actual),
+        "duplicates_manifest": len(wanted) - len(wanted_set),
+        "duplicates_mkd": len(actual) - len(actual_set),
+        "missing_in_mkd": [list(k) for k in sorted(wanted_set - actual_set)],
+        "unexpected_in_mkd": [list(k) for k in sorted(actual_set - wanted_set)],
+    }
+    result["pass"] = (not result["duplicates_manifest"] and not result["duplicates_mkd"]
+                      and not result["missing_in_mkd"] and not result["unexpected_in_mkd"]
+                      and (expected is None or len(wanted) == expected))
+    return result
+
 def main():
     parser = argparse.ArgumentParser(description="MKD read-only EOD coverage audit")
     parser.add_argument("--minimum-sessions", type=int, default=1000)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--manifest", type=Path, help="Independent W CSV for key reconciliation")
+    parser.add_argument("--expected", type=int, help="Required count; only with --manifest")
     args = parser.parse_args()
     with SessionLocal() as db:
         result = coverage(db, minimum_sessions=args.minimum_sessions)
+    if args.expected is not None and (args.expected < 1 or not args.manifest):
+        parser.error("--expected requires --manifest and a positive count")
+    if args.manifest:
+        from app.universe import parse_manifest
+        result["reconciliation"] = reconcile_manifest(result, parse_manifest(args.manifest), expected=args.expected)
     text = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
         args.output.write_text(text + "\n", encoding="utf-8")
     print(text)
+    if args.manifest and not result["reconciliation"]["pass"]:
+        raise SystemExit(1)
 
 if __name__ == "__main__":
     main()
