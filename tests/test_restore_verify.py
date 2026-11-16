@@ -63,3 +63,13 @@ def test_restore_password_not_in_arguments(tmp_path):
     for args, kwargs in calls:
         assert "secret-pass" not in " ".join(args)
         assert kwargs["env"]["PGPASSWORD"] == "secret-pass"
+
+@pytest.mark.parametrize("digest", ["abc", "g" * 64, "A" * 64, "0" * 63])
+def test_restore_rejects_malformed_checksum_before_database_access(tmp_path, digest):
+    p = fixture_dump(tmp_path)
+    p.with_suffix(".dump.sha256").write_text(f"{digest}  mkd.dump\n")
+    runner = Mock()
+    with pytest.raises(ValueError, match="invalid checksum manifest"):
+        restore_to_empty(dump=p, source_url="postgresql://localhost/mkd",
+                         target_url="postgresql://localhost/mkd_restore_test", runner=runner)
+    runner.assert_not_called()
