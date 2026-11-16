@@ -12,6 +12,9 @@ from sqlalchemy.engine import make_url, URL
 def backup(*, destination: Path, database_url: str, runner=subprocess.run):
     if destination.exists():
         raise FileExistsError(destination)
+    checksum_path = destination.with_suffix(".dump.sha256")
+    if checksum_path.exists():
+        raise FileExistsError(checksum_path)
     if destination.suffix != ".dump":
         raise ValueError("backup must use .dump extension")
     url = make_url(database_url)
@@ -39,7 +42,7 @@ def backup(*, destination: Path, database_url: str, runner=subprocess.run):
         if not digest or tmp.stat().st_size == 0:
             raise ValueError("empty dump")
         tmp.rename(destination)
-        destination.with_suffix(".dump.sha256").write_text(
+        checksum_path.write_text(
             f"{digest}  {destination.name}\n", encoding="utf-8")
         return {"file": str(destination), "sha256": digest, "bytes": destination.stat().st_size}
     finally:
