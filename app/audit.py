@@ -2,6 +2,7 @@
 import argparse
 import json
 from pathlib import Path
+from datetime import datetime, timezone
 from sqlalchemy import select, func
 from app.db import SessionLocal
 from app.models import Bar, Identifier, Instrument
@@ -16,11 +17,13 @@ def coverage(db, *, minimum_sessions: int = 1000):
                     func.max(Bar.session_date).label("last")).where(
                         Bar.quality_status == "valid", Bar.provider == "yahoo"
                     ).group_by(Bar.instrument_id).subquery()
+    at = datetime.now(timezone.utc)
     rows = db.execute(select(Identifier, Instrument, counts.c.sessions,
                              counts.c.first, counts.c.last).join(
         Instrument, Instrument.id == Identifier.instrument_id
     ).outerjoin(counts, counts.c.instrument_id == Identifier.instrument_id).where(
-        Identifier.provider == "yahoo", Identifier.valid_to.is_(None)
+        Identifier.provider == "yahoo", Identifier.valid_from <= at,
+        (Identifier.valid_to.is_(None) | (Identifier.valid_to > at))
     ).order_by(Identifier.symbol, Identifier.mic)).all()
     items = []
     for ident, inst, sessions, first, last in rows:
