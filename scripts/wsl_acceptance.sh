@@ -7,8 +7,20 @@ cd "$(dirname "$0")/.."
 : "${W_MANIFEST:?Set W_MANIFEST to independently exported read-only W CSV}"
 : "${MKD_RESTORE_TEST_URL:?Set MKD_RESTORE_TEST_URL for pre-created EMPTY _restore_test DB}"
 [[ -f "$W_MANIFEST" ]] || { echo "W manifest not found: $W_MANIFEST" >&2; exit 2; }
-[[ "${MKD_RESTORE_TEST_URL}" == *"_restore_test" ]] || { echo "Restore target must end _restore_test" >&2; exit 2; }
-[[ "${DATABASE_URL}" != "${MKD_RESTORE_TEST_URL}" ]] || { echo "Restore target equals source" >&2; exit 2; }
+# Validate parsed PostgreSQL URLs, not raw strings (credentials/ports/query may differ).
+python - <<'PY'
+import os
+from sqlalchemy.engine import make_url
+source = make_url(os.environ["DATABASE_URL"])
+target = make_url(os.environ["MKD_RESTORE_TEST_URL"])
+if source.get_backend_name() != "postgresql" or target.get_backend_name() != "postgresql":
+    raise SystemExit("Only PostgreSQL databases are allowed")
+if not target.database or not target.database.endswith("_restore_test"):
+    raise SystemExit("Restore target database must end in _restore_test")
+if (source.host, source.port or 5432, source.database) == (target.host, target.port or 5432, target.database):
+    raise SystemExit("Restore target must differ from MKD source")
+print("MKD source database:", source.database, "restore target:", target.database)
+PY
 command -v pg_dump >/dev/null
 command -v pg_restore >/dev/null
 command -v psql >/dev/null
