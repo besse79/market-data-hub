@@ -92,3 +92,29 @@ def fx(base: str, quote: str, date: date, as_of: datetime, db: Session = Depends
     return {"base": base, "quote": quote, "effective_date": date, "rate": r.rate,
             "provider": r.provider, "revision": r.revision,
             "published_at": r.published_at, "first_available_at": r.first_available_at}
+
+@app.get("/v1/legacy/bars")
+def legacy_bars(instrument_id: UUID, start: date, end: date,
+                limit: int = Query(500, ge=1, le=1000),
+                db: Session = Depends(session)):
+    """Explicitly non-PIT research data. Never use for as-of backtests."""
+    if end < start:
+        raise HTTPException(422, "invalid date range")
+    rows = db.scalars(select(Bar).where(
+        Bar.instrument_id == instrument_id,
+        Bar.session_date >= start,
+        Bar.session_date <= end,
+        Bar.provider == "yahoo",
+        Bar.quality_status == "legacy_unverified",
+        Bar.published_at.is_(None),
+        Bar.first_available_at.is_(None),
+    ).order_by(Bar.session_date, Bar.revision.desc()).limit(limit + 1)).all()
+    if len(rows) > limit:
+        raise HTTPException(422, "result exceeds limit; narrow date range")
+    return {"instrument_id": instrument_id, "point_in_time_verified": False,
+            "backtest_eligible": False, "items": [
+                {"date": r.session_date, "open": r.open, "high": r.high,
+                 "low": r.low, "close": r.close, "volume": r.volume,
+                 "currency": r.currency, "provider": r.provider,
+                 "quality_status": r.quality_status}
+                for r in rows]}
