@@ -44,7 +44,11 @@ def collect_one(db: Session, *, instrument_id, symbol: str, currency: str,
     rows = fetch(symbol, start, end)
     observed_at = datetime.now(timezone.utc)
     stats = {"created": 0, "revised": 0, "unchanged": 0}
+    seen_dates = set()
     for session_date, row in rows:
+        if session_date in seen_dates:
+            raise ValueError(f"duplicate Yahoo candle for {symbol} on {session_date}")
+        seen_dates.add(session_date)
         if not start <= session_date < end:
             raise ValueError("provider returned out-of-range candle")
         bar = yahoo_daily_record(
