@@ -17,8 +17,8 @@
 2. Sauvegarder MKD avant import : `python -m app.backup /chemin/mkd-before-import.dump`.
 3. Importer **dans MKD uniquement** : `python -m app.universe /chemin/manifest.csv --apply`.
 4. Collecter un premier lot, puis reprendre les suivants sans écraser l'historique : `python -m app.collector --start 2025-01-01 --end 2026-11-16 --limit 100 --offset 0 --delay 1`. Reprendre avec offsets 100, 200, etc. Les erreurs par instrument sont signalées et provoquent un code retour non nul.
-5. Exporter la couverture : `python -m app.audit --minimum-sessions 1000 --output /chemin/mkd-coverage.json`.
-6. Contrôler les 806 titres **par identifiant symbol + MIC + devise**, les doublons, les historiques courts, les rejets, les dates manquantes et les écarts OHLCV avec W. Une couverture suffisante ne prouve pas la parité des cours. Consigner les écarts dans un rapport distinct.
+5. Exporter la couverture : `python -m app.audit --minimum-sessions 1000 --manifest /chemin/manifest.csv --expected 806 --output /chemin/mkd-coverage.json`.
+6. Contrôler les 806 titres **par identifiant symbol + MIC + devise**, les doublons, les historiques courts, les rejets, les dates manquantes et les écarts OHLCV avec W. Le rapport `reconciliation` contrôle les clés exactes et échoue si le manifeste ne contient pas 806 lignes ou si des identifiants manquent/diffèrent. Une couverture suffisante ne prouve pas la parité des cours. Consigner les écarts dans un rapport distinct.
 7. Créer une base PostgreSQL vide et isolée dont le nom se termine par `_restore_test`. Fournir `MKD_RESTORE_TEST_URL` (URL de cette base), puis exécuter `python -m app.restore_verify /chemin/mkd-before-import.dump`. Ne jamais utiliser la base W comme cible.
 
 ## Critères de clôture
