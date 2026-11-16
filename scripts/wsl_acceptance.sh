@@ -15,7 +15,9 @@ source = make_url(os.environ["DATABASE_URL"])
 target = make_url(os.environ["MKD_RESTORE_TEST_URL"])
 if source.get_backend_name() != "postgresql" or target.get_backend_name() != "postgresql":
     raise SystemExit("Only PostgreSQL databases are allowed")
-if not target.database or not target.database.endswith("_restore_test"):
+if not source.database or not source.database.lower().startswith("mkd"):
+    raise SystemExit("Refusing non-MKD source database; W must remain read-only")
+if not target.database or not target.database.lower().startswith("mkd") or not target.database.endswith("_restore_test"):
     raise SystemExit("Restore target database must end in _restore_test")
 if (source.host, source.port or 5432, source.database) == (target.host, target.port or 5432, target.database):
     raise SystemExit("Restore target must differ from MKD source")
