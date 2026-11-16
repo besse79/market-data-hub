@@ -1,6 +1,7 @@
 """Pure validation helpers shared by ingestion and API adapters."""
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from numbers import Integral
 
 class InvalidMarketData(ValueError):
     pass
@@ -18,9 +19,9 @@ def validate_bar(open_, high, low, close, volume):
     o, h, l, c = (decimal(x, k) for x, k in ((open_, "open"), (high, "high"), (low, "low"), (close, "close")))
     if l < 0 or h < max(o, c, l) or l > min(o, c) or min(o, c) < 0:
         raise InvalidMarketData("inconsistent OHLC")
-    if isinstance(volume, bool) or not isinstance(volume, int) or volume < 0:
+    if isinstance(volume, bool) or not isinstance(volume, Integral) or volume < 0:
         raise InvalidMarketData("invalid volume")
-    return o, h, l, c, volume
+    return o, h, l, c, int(volume)
 
 def validate_fx(rate, base="EUR", quote="USD"):
     if base == quote or len(base) != 3 or len(quote) != 3:
