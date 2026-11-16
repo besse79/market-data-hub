@@ -118,3 +118,14 @@ def legacy_bars(instrument_id: UUID, start: date, end: date,
                  "currency": r.currency, "provider": r.provider,
                  "quality_status": r.quality_status}
                 for r in rows]}
+
+@app.get("/v1/legacy/resolve")
+def legacy_resolve(symbol: str, db: Session = Depends(session)):
+    """Resolve Yahoo source symbols without claiming a verified exchange MIC."""
+    from sqlalchemy import text
+    row = db.execute(text("""SELECT symbol, name, currency, instrument_id,
+        mic, mic_verified FROM legacy_symbol_map WHERE symbol = :symbol"""),
+        {"symbol": symbol.strip().upper()}).mappings().first()
+    if row is None:
+        raise HTTPException(404, "legacy symbol not found")
+    return dict(row)
