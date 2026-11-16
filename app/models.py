@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Integer, BigInteger, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -38,7 +38,7 @@ class Bar(Base):
     high: Mapped[float] = mapped_column(Numeric(24, 8))
     low: Mapped[float] = mapped_column(Numeric(24, 8))
     close: Mapped[float] = mapped_column(Numeric(24, 8))
-    volume: Mapped[int] = mapped_column(Integer)
+    volume: Mapped[int] = mapped_column(BigInteger)
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     first_available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
