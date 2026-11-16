@@ -40,14 +40,18 @@ def normalize_bar(raw: dict) -> DailyBar:
         raise InvalidMarketData(f"malformed EOD record: {exc}") from exc
     if not provider or len(provider) > 40 or len(currency) != 3 or not currency.isalpha():
         raise InvalidMarketData("invalid provider or currency")
-    if published_at.tzinfo is None or first_available_at.tzinfo is None:
+    if (published_at.tzinfo is None or published_at.utcoffset() is None or
+            first_available_at.tzinfo is None or first_available_at.utcoffset() is None):
         raise InvalidMarketData("publication timestamps must have timezone")
     if first_available_at < published_at:
         raise InvalidMarketData("first_available_at precedes publication")
     if session_date > published_at.date():
         raise InvalidMarketData("session date after publication")
-    if published_at > datetime.now(timezone.utc):
+    now = datetime.now(timezone.utc)
+    if published_at > now:
         raise InvalidMarketData("future publication")
+    if first_available_at > now:
+        raise InvalidMarketData("future first availability")
     return DailyBar(instrument_id, session_date, provider, currency,
                     open_, high, low, close, volume, published_at, first_available_at)
 
