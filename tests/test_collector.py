@@ -26,3 +26,17 @@ def test_reject_out_of_range_provider_row():
         collect_one(object(), instrument_id=uuid4(), symbol="TEST", currency="EUR",
                     start=date(2026, 11, 13), end=date(2026, 11, 14),
                     fetch=lambda *args: [(date(2026, 11, 12), sample)])
+
+
+def test_reject_duplicate_session_before_second_import(monkeypatch):
+    from app import collector
+    saved = []
+    monkeypatch.setattr(collector, "import_bar",
+                        lambda db, raw, dry_run=False: saved.append(raw) or "created")
+    session = date(2026, 11, 13)
+    sample = {"Open": 10, "High": 12, "Low": 9, "Close": 11, "Volume": 100}
+    with pytest.raises(ValueError, match="duplicate Yahoo candle"):
+        collect_one(object(), instrument_id=uuid4(), symbol="DUP", currency="EUR",
+                    start=session, end=date(2026, 11, 14),
+                    fetch=lambda *args: [(session, sample), (session, sample)])
+    assert len(saved) == 1
