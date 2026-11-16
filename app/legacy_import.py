@@ -35,14 +35,14 @@ def import_legacy(path: Path, *, apply: bool = False):
             reader = csv.DictReader(handle)
             if not reader.fieldnames or not REQUIRED.issubset(reader.fieldnames):
                 raise ValueError("CSV missing required fields")
-            seen = set()
+            previous_key = None
             for line, row in enumerate(reader, 2):
                 symbol = row["symbol"].strip().upper()
                 currency = row["currency"].strip().upper()
                 key = (symbol, row["day"])
-                if key in seen:
-                    raise ValueError(f"duplicate source bar on line {line}: {key}")
-                seen.add(key)
+                if previous_key is not None and key <= previous_key:
+                    raise ValueError(f"unsorted or duplicate source bar on line {line}: {key}")
+                previous_key = key
                 matches = by_key.get((symbol, currency), set())
                 if len(matches) != 1:
                     unresolved[(symbol, currency)] += 1
