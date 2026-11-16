@@ -21,3 +21,25 @@ def test_empty_coverage():
 def test_invalid_threshold():
     with pytest.raises(ValueError):
         coverage(Mock(), minimum_sessions=0)
+
+from app.audit import reconcile_manifest
+
+def test_manifest_reconciliation_exact_keys():
+    report = {"instruments": [{"symbol": "AAPL", "mic": "XNAS", "currency": "USD"}]}
+    rows = [{"symbol": "aapl", "mic": "xnas", "currency": "usd"}]
+    assert reconcile_manifest(report, rows, expected=1)["pass"]
+
+def test_manifest_reconciliation_rejects_missing_extra_and_duplicates():
+    report = {"instruments": [{"symbol": "AAPL", "mic": "XNAS", "currency": "USD"},
+                              {"symbol": "AAPL", "mic": "XNAS", "currency": "USD"}]}
+    rows = [{"symbol": "AAPL", "mic": "XNYS", "currency": "USD"}]
+    result = reconcile_manifest(report, rows, expected=806)
+    assert not result["pass"]
+    assert result["duplicates_mkd"] == 1
+    assert result["missing_in_mkd"] == [["AAPL", "XNYS", "USD"]]
+    assert result["unexpected_in_mkd"] == [["AAPL", "XNAS", "USD"]]
+
+def test_manifest_reconciliation_rejects_wrong_expected_count():
+    report = {"instruments": [{"symbol": "AAPL", "mic": "XNAS", "currency": "USD"}]}
+    rows = [{"symbol": "AAPL", "mic": "XNAS", "currency": "USD"}]
+    assert not reconcile_manifest(report, rows, expected=806)["pass"]
