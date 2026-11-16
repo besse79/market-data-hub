@@ -27,3 +27,19 @@ def test_backup_failure_removes_partial(tmp_path):
         backup(destination=path, database_url="postgresql://localhost/mkd", runner=failing)
     assert not path.exists()
     assert not path.with_suffix(".dump.partial").exists()
+
+def test_backup_does_not_expose_password_in_process_arguments(tmp_path):
+    calls = []
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        if args[0] == "pg_dump":
+            Path(args[args.index("--file") + 1]).write_bytes(b"test dump")
+        return Mock(returncode=0)
+    path = tmp_path / "secure.dump"
+    backup(destination=path,
+           database_url="postgresql+psycopg://mkd:very-secret@localhost:5432/mkd",
+           runner=fake_run)
+    dump_args, dump_kwargs = calls[0]
+    assert "very-secret" not in " ".join(dump_args)
+    assert dump_kwargs["env"]["PGPASSWORD"] == "very-secret"
+    assert "very-secret" not in str(calls[1][0])
