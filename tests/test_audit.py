@@ -43,3 +43,13 @@ def test_manifest_reconciliation_rejects_wrong_expected_count():
     report = {"instruments": [{"symbol": "AAPL", "mic": "XNAS", "currency": "USD"}]}
     rows = [{"symbol": "AAPL", "mic": "XNAS", "currency": "USD"}]
     assert not reconcile_manifest(report, rows, expected=806)["pass"]
+
+def test_coverage_filters_identifiers_by_effective_dates():
+    db = Mock()
+    db.execute.return_value.all.return_value = []
+    coverage(db)
+    statement = db.execute.call_args.args[0]
+    sql = str(statement)
+    assert "instrument_identifiers.valid_from <=" in sql
+    assert "instrument_identifiers.valid_to >" in sql
+    assert "instrument_identifiers.valid_to IS NULL" in sql
