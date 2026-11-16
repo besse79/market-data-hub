@@ -49,3 +49,17 @@ def test_restore_to_empty(tmp_path):
     assert result["restored_to"] == "mkd_restore_test"
     assert runner.call_count == 2
     assert runner.call_args.args[0][0] == "pg_restore"
+
+def test_restore_password_not_in_arguments(tmp_path):
+    calls = []
+    def runner(args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(stdout="0\\n")
+    restore_to_empty(dump=fixture_dump(tmp_path),
+                     source_url="postgresql://localhost/mkd",
+                     target_url="postgresql+psycopg://mkd:secret-pass@localhost/mkd_restore_test",
+                     runner=runner)
+    assert len(calls) == 2
+    for args, kwargs in calls:
+        assert "secret-pass" not in " ".join(args)
+        assert kwargs["env"]["PGPASSWORD"] == "secret-pass"
