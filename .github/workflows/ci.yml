@@ -34,8 +34,11 @@ jobs:
           MKD_RESTORE_TEST_URL: postgresql+psycopg://mkd:mkd@localhost:5432/mkd_restore_test
         run: |
           set -euo pipefail
+          # Seed a durable fixture so restore proves data recovery, not only DDL.
+          psql -h localhost -U mkd -d mkd -v ON_ERROR_STOP=1 -c "INSERT INTO instruments (id,name,asset_type,status) VALUES ('00000000-0000-4000-8000-000000000806','MKD restore fixture','equity','active')"
           python -m app.backup /tmp/mkd-ci.dump
           psql -h localhost -U mkd -d mkd -v ON_ERROR_STOP=1 -c 'CREATE DATABASE mkd_restore_test'
           python -m app.restore_verify /tmp/mkd-ci.dump
           psql -h localhost -U mkd -d mkd_restore_test -v ON_ERROR_STOP=1 -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='instruments'" | grep -qx 1
+          psql -h localhost -U mkd -d mkd_restore_test -v ON_ERROR_STOP=1 -tAc "SELECT count(*) FROM instruments WHERE id='00000000-0000-4000-8000-000000000806' AND name='MKD restore fixture'" | grep -qx 1
           (cd /tmp && sha256sum -c mkd-ci.dump.sha256)
