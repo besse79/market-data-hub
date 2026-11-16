@@ -28,9 +28,7 @@ Le `--apply` est volontairement distinct du contrôle à blanc. Arrêter immédi
 Pour collecter l'historique en lots, choisir une période fixe (fin exclusive). Les appels sont idempotents; un instrument en erreur n'empêche pas les autres et la commande retourne un code non nul si au moins un échoue :
 
 ```bash
-python -m app.collector --start 2021-11-16 --end 2026-11-16 --limit 100 --offset 0
-python -m app.collector --start 2021-11-16 --end 2026-11-16 --limit 100 --offset 100
-# Continuer les offsets 200, 300... jusqu'à couvrir le nombre d'identifiants importés.
+python -m app.collect_all --start 2021-11-16 --end 2026-11-16 --batch-size 100 --output ./artifacts/collection-report.json
 python -m app.audit --output ./artifacts/coverage-after.json
 ```
 
