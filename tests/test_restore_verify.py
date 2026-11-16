@@ -54,7 +54,8 @@ def test_restore_password_not_in_arguments(tmp_path):
     calls = []
     def runner(args, **kwargs):
         calls.append((args, kwargs))
-        return SimpleNamespace(stdout="0\\n")
+        return SimpleNamespace(stdout="0
+")
     restore_to_empty(dump=fixture_dump(tmp_path),
                      source_url="postgresql://localhost/mkd",
                      target_url="postgresql+psycopg://mkd:secret-pass@localhost/mkd_restore_test",
