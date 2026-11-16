@@ -15,7 +15,9 @@ def verify_checksum(dump: Path):
         raise ValueError("existing .dump file required")
     checksum = dump.with_suffix(".dump.sha256")
     expected_parts = checksum.read_text(encoding="utf-8").strip().split()
-    if len(expected_parts) != 2 or expected_parts[1] != dump.name:
+    if (len(expected_parts) != 2 or expected_parts[1] != dump.name
+            or len(expected_parts[0]) != 64
+            or any(ch not in "0123456789abcdef" for ch in expected_parts[0])):
         raise ValueError("invalid checksum manifest")
     digest = hashlib.sha256()
     with dump.open("rb") as stream:
