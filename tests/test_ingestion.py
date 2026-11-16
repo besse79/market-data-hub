@@ -39,3 +39,10 @@ def test_first_available_after_publication():
     row["first_available_at"] = "2026-11-13T21:00:00+00:00"
     with pytest.raises(InvalidMarketData):
         normalize_bar(row)
+
+
+def test_no_future_first_availability():
+    row = sample()
+    row["first_available_at"] = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    with pytest.raises(InvalidMarketData, match="future first availability"):
+        normalize_bar(row)
