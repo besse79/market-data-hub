@@ -18,6 +18,8 @@ mkdir -p "$OUT"
 exec > >(tee "$OUT/recipe.log") 2>&1
 echo "MKD acceptance started UTC: $STAMP"
 sha256sum "$W_MANIFEST" > "$OUT/w-manifest.sha256"
+# Fail before any database write if the W manifest is incomplete or duplicated.
+python -c 'import os; from pathlib import Path; from app.universe import parse_manifest; rows=parse_manifest(Path(os.environ["W_MANIFEST"])); print("W manifest instruments:", len(rows)); assert len(rows)==806, f"Expected 806 instruments, got {len(rows)}"'
 python -m app.universe "$W_MANIFEST"
 python -m app.backup "$OUT/mkd-before-import.dump"
 python -m app.restore_verify "$OUT/mkd-before-import.dump"
