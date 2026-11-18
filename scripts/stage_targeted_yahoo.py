@@ -29,7 +29,7 @@ def main():
     for symbol in candidates[:a.limit]:
         item={"symbol":symbol,"status":"ERROR","rows":0,"source":"yahoo","pit":False}
         try:
-            if not re.fullmatch(r"[A-Z0-9.^=\\-]{1,40}",symbol): raise ValueError("Invalid Yahoo symbol")
+            if not re.fullmatch(r"[A-Z0-9.^=\-]{1,40}",symbol): raise ValueError("Invalid Yahoo symbol")
             df=yf.Ticker(symbol).history(start=start,end=end,interval="1d",auto_adjust=False,actions=False)
             if df is None or df.empty:
                 item["status"]="NO_DATA"
@@ -47,7 +47,7 @@ def main():
                 # A single symbol cannot exceed 10k daily rows in six years.
                 if len(records)>10000: raise ValueError("Unexpected history size")
                 filename=hashlib.sha256(symbol.encode()).hexdigest()[:20]+".jsonl"
-                payload="".join(json.dumps(r,separators=(",",":"))+"\\n" for r in records)
+                payload="".join(json.dumps(r,separators=(",",":"))+"\n" for r in records)
                 (a.output/filename).write_text(payload)
                 item.update(status="STAGED",rows=len(records),first=records[0]["date"],last=records[-1]["date"],file=filename,sha256=hashlib.sha256(payload.encode()).hexdigest())
         except Exception as exc:
@@ -56,7 +56,7 @@ def main():
         print(f"{len(manifest)}/{min(len(candidates),a.limit)} {symbol}: {item['status']} ({item['rows']})",flush=True)
         time.sleep(0.3)
     summary={"createdAt":dt.datetime.now(dt.timezone.utc).isoformat(),"sourceReport":str(a.reconciliation.resolve()),"provider":"yahoo","pit":False,"databaseWrites":0,"requested":a.limit,"counts":dict(Counter(i["status"] for i in manifest)),"instruments":manifest}
-    (a.output/"manifest.json").write_text(json.dumps(summary,indent=2)+"\\n")
+    (a.output/"manifest.json").write_text(json.dumps(summary,indent=2)+"\n")
     print(json.dumps({"manifest":str(a.output/"manifest.json"),"counts":summary["counts"],"databaseWrites":0},indent=2))
     return 2 if any(i["status"]=="ERROR" for i in manifest) else 0
 if __name__=="__main__": sys.exit(main())
