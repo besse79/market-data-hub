@@ -18,8 +18,9 @@ q=json.loads(a.qualification.read_text())
 if hashlib.sha256(manifest_bytes).hexdigest()!=q.get("stageManifestSha256") or str(a.stage.resolve())!=q.get("stage"):sys.exit("Qualification mismatch")
 staged={x["symbol"]:x for x in manifest["instruments"]}
 qualified=[x for x in q["instruments"] if x["status"]=="QUALIFIED"]
-if len(staged)!=266 or not qualified:sys.exit("No eligible instruments")
+if len(staged)!=266 or len(qualified)!=264 or not qualified:sys.exit("Unexpected qualified instrument count")
 if len(set(x["symbol"] for x in qualified))!=len(qualified):sys.exit("Duplicate qualification")
+if any(not x.get("mic") or not x.get("currency") or not x.get("name") or x.get("issues") for x in qualified):sys.exit("Invalid qualification metadata")
 conninfo="dbname=market_data_hub user=benoit host=/var/run/postgresql port=5433"
 # Never silently use a different database.
 with psycopg.connect(conninfo) as db:
@@ -28,7 +29,7 @@ with psycopg.connect(conninfo) as db:
   assert cur.fetchone()==("market_data_hub","benoit")
   cur.execute("SELECT symbol FROM legacy_symbol_map")
   known={r[0] for r in cur.fetchall()}
-  cur.execute("SELECT symbol FROM instrument_identifiers WHERE provider='yahoo'")
+  cur.execute("SELECT symbol FROM instrument_identifiers")
   known.update(r[0] for r in cur.fetchall())
   overlaps=sorted(known.intersection(x["symbol"] for x in qualified))
   if overlaps:sys.exit("Existing symbols; refuse insert: "+str(overlaps[:10]))
@@ -50,6 +51,7 @@ for x in qualified:
   rows.append((dt.date.fromisoformat(date),o,h,l,c,v))
  if len(rows)!=item["rows"]:sys.exit("Row count mismatch")
  rows_by_symbol[x["symbol"]]=rows
+if sum(map(len,rows_by_symbol.values()))!=389225:sys.exit("Unexpected total staged bar count")
 print(json.dumps({"qualified":len(qualified),"blocked":266-len(qualified),"bars":sum(map(len,rows_by_symbol.values())),"apply":a.apply},indent=2))
 if not a.apply:sys.exit(0)
 a.backup_dir.mkdir(parents=True,exist_ok=False)
@@ -69,7 +71,7 @@ with psycopg.connect(conninfo) as db:
    cur.execute("SELECT pg_advisory_xact_lock(77911019)")
    cur.execute("SELECT symbol FROM legacy_symbol_map")
    known={r[0] for r in cur.fetchall()}
-   cur.execute("SELECT symbol FROM instrument_identifiers WHERE provider='yahoo'")
+   cur.execute("SELECT symbol FROM instrument_identifiers")
    known.update(r[0] for r in cur.fetchall())
    if known.intersection(rows_by_symbol):raise RuntimeError("Concurrent symbol conflict; rolled back")
    for x in qualified:
