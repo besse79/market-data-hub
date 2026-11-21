@@ -45,7 +45,8 @@ def main():
    if not item['provider_exchange']:issues.append('NO_PROVIDER_EXCHANGE')
    if item['provider_quote_type'] not in ('EQUITY','ETF'):issues.append('QUOTE_TYPE_REVIEW')
    if overlap<0.5:issues.append('NAME_MISMATCH_OR_AMBIGUOUS')
-   if not item['provider_isin'] or item['provider_isin'].upper() in ('-','N/A'):\n    item['provider_isin']=''
+   if not item['provider_isin'] or item['provider_isin'].upper() in ('-','N/A'):
+    item['provider_isin']=''
    if not issues:item['status']='PROVIDER_CONSISTENT_REVIEW'
    item['reason']=';'.join(issues) or ('PROVIDER_ISIN_AVAILABLE;INDEPENDENT_ISIN_MIC_CONFIRMATION_REQUIRED' if item['provider_isin'] else 'PROVIDER_ISIN_UNAVAILABLE;INDEPENDENT_ISIN_MIC_CONFIRMATION_REQUIRED')
   except Exception as e:item['reason']='PROVIDER_ERROR:'+str(e)[:180]
