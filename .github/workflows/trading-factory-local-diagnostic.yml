@@ -1,0 +1,20 @@
+name: Trading Factory - local diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    # Runs only on explicitly registered and labeled trusted self-hosted runners.
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 10
+    steps:
+      - name: Validate runner tools (no repo code executed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cmd in git python3; do command -v "$cmd"; done
+          python3 - <<'PY'
+          import json,platform,datetime
+          print(json.dumps({"runner":platform.node(),"utc":datetime.datetime.now(datetime.timezone.utc).isoformat(),"mode":"diagnostic_only","db_writes":False}))
+          PY
