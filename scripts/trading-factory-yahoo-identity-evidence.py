@@ -55,7 +55,8 @@ def main():
   w=csv.DictWriter(f,fieldnames=list(out[0]));w.writeheader();w.writerows(out)
  summary={'timestamp_utc':datetime.now(timezone.utc).isoformat(),'input_count':len(rows),'offset':a.offset,
           'probed':len(out),'provider_consistent_review':sum(x['status']=='PROVIDER_CONSISTENT_REVIEW' for x in out),
-          'unresolved':sum(x['status']!='PROVIDER_CONSISTENT_REVIEW' for x in out),\n          'provider_isin_available':sum(bool(x['provider_isin']) for x in out),
+          'unresolved':sum(x['status']!='PROVIDER_CONSISTENT_REVIEW' for x in out),
+          'provider_isin_available':sum(bool(x['provider_isin']) for x in out),
           'certified':0,'database_writes':False,'pit_eligible':False,'paper_eligible':False,
           'note':'Yahoo quote metadata and Yahoo ISIN are not independent identity/MIC evidence'}
  (a.output/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
