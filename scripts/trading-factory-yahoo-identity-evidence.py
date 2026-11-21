@@ -45,16 +45,16 @@ def main():
    if not item['provider_exchange']:issues.append('NO_PROVIDER_EXCHANGE')
    if item['provider_quote_type'] not in ('EQUITY','ETF'):issues.append('QUOTE_TYPE_REVIEW')
    if overlap<0.5:issues.append('NAME_MISMATCH_OR_AMBIGUOUS')
-   if not item['provider_isin'] or item['provider_isin'].upper() in ('-','N/A'):issues.append('NO_PROVIDER_ISIN')
+   if not item['provider_isin'] or item['provider_isin'].upper() in ('-','N/A'):\n    item['provider_isin']=''
    if not issues:item['status']='PROVIDER_CONSISTENT_REVIEW'
-   item['reason']=';'.join(issues) or 'INDEPENDENT_ISIN_MIC_CONFIRMATION_REQUIRED'
+   item['reason']=';'.join(issues) or ('PROVIDER_ISIN_AVAILABLE;INDEPENDENT_ISIN_MIC_CONFIRMATION_REQUIRED' if item['provider_isin'] else 'PROVIDER_ISIN_UNAVAILABLE;INDEPENDENT_ISIN_MIC_CONFIRMATION_REQUIRED')
   except Exception as e:item['reason']='PROVIDER_ERROR:'+str(e)[:180]
   out.append(item);time.sleep(a.pause)
  with (a.output/'identity-evidence.csv').open('w',newline='',encoding='utf-8') as f:
   w=csv.DictWriter(f,fieldnames=list(out[0]));w.writeheader();w.writerows(out)
  summary={'timestamp_utc':datetime.now(timezone.utc).isoformat(),'input_count':len(rows),'offset':a.offset,
           'probed':len(out),'provider_consistent_review':sum(x['status']=='PROVIDER_CONSISTENT_REVIEW' for x in out),
-          'unresolved':sum(x['status']!='PROVIDER_CONSISTENT_REVIEW' for x in out),
+          'unresolved':sum(x['status']!='PROVIDER_CONSISTENT_REVIEW' for x in out),\n          'provider_isin_available':sum(bool(x['provider_isin']) for x in out),
           'certified':0,'database_writes':False,'pit_eligible':False,'paper_eligible':False,
           'note':'Yahoo quote metadata and Yahoo ISIN are not independent identity/MIC evidence'}
  (a.output/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
