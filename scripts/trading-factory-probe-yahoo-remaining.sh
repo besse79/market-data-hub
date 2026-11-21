@@ -5,7 +5,11 @@ PY="$HOME/market-data-hub/.venv/bin/python"
 [[ -x "$PY" ]] || { echo 'BLOCKED: MKD venv missing' >&2; exit 2; }
 OUT="$HOME/trading-factory-reports/mkd-mapping-evidence/full-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$OUT";chmod 700 "$OUT"
-curl -fsSL --max-time 30 'https://raw.githubusercontent.com/besse79/market-data-hub/prep/recette-wsl-20261121/scripts/trading-factory-probe-yahoo-mappings.py' -o "$OUT/probe.py"
+curl -fsSL --max-time 30 'https://raw.githubusercontent.com/besse79/market-data-hub/prep/recette-wsl-20261121/scripts/trading-factory-probe-yahoo-mappings.py?revision=09b1cf3dea2da68b4b10663bb77781a3cc9f76ea' -o "$OUT/probe.py"
+# Fail immediately if a cached older probe without pagination was retrieved.
+"$PY" "$OUT/probe.py" --help | grep -q -- '--offset' || {
+ echo 'BLOCKED: stale probe version; --offset missing' >&2; exit 3;
+}
 for offset in $(seq 40 80 839);do
  echo "=== Mapping candidates $offset..$((offset+79)) / 840 ==="
  "$PY" "$OUT/probe.py" --output "$OUT/batch-$offset" --offset "$offset" --limit 80 --pause 1
