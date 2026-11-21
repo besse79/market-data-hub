@@ -10,9 +10,10 @@ def main():
  p=argparse.ArgumentParser()
  p.add_argument('--output',required=True,type=Path)
  p.add_argument('--limit',type=int,default=40)
+ p.add_argument('--offset',type=int,default=0)
  p.add_argument('--pause',type=float,default=2)
  a=p.parse_args()
- if not 1<=a.limit<=840 or not 0.5<=a.pause<=30: p.error('limit 1..840, pause 0.5..30')
+ if not 1<=a.limit<=840 or a.offset<0 or not 0.5<=a.pause<=30: p.error('limit 1..840, offset >=0, pause 0.5..30')
  a.output.mkdir(parents=True,exist_ok=True)
  with psycopg.connect(DSN,options='-c default_transaction_read_only=on') as con:
   with con.cursor() as cur:
@@ -27,7 +28,7 @@ def main():
  unique={}
  for row in rows:
   unique.setdefault(row[0],row)
- selected=list(unique.values())[:a.limit]
+ selected=list(unique.values())[a.offset:a.offset+a.limit]
  results=[]
  for ident,name,symbol,currency,mic,mic_verified in selected:
   record={'instrument_id':ident,'name':name,'legacy_symbol':symbol,'legacy_currency':currency,
@@ -60,10 +61,10 @@ def main():
   writer=csv.DictWriter(f,fieldnames=list(results[0]) if results else [])
   writer.writeheader();writer.writerows(results)
  summary={'timestamp_utc':datetime.now(timezone.utc).isoformat(),'unmapped_total':len(unique),
-          'probed':len(results),'candidate_review':sum(r['status']=='CANDIDATE_REVIEW' for r in results),
+          'offset':a.offset,'probed':len(results),'candidate_review':sum(r['status']=='CANDIDATE_REVIEW' for r in results),
           'unresolved':sum(r['status']=='UNRESOLVED' for r in results),
           'auto_mapped':0,'production_writes':False,'pit_verified':False,'paper_eligible':False,
-          'next_offset_supported':False,
+          'next_offset_supported':True,'next_offset':a.offset+len(results),
           'note':'Candidates require instrument identity and MIC verification; no auto-promotion'}
  (a.output/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
  print(json.dumps(summary,indent=2))
