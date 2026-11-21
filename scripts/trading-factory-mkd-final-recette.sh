@@ -75,7 +75,7 @@ existing=$(sudo -n -u postgres psql -XAt -h /var/run/postgresql -p 5433 -U postg
 [[ "$existing" == 0 ]] || fail 'Scratch DB already exists'
 sudo -n -u postgres createdb -h /var/run/postgresql -p 5433 -U postgres "$scratch" || fail 'Cannot create scratch DB'
 created=1
-sudo -n -u postgres pg_restore --exit-on-error --no-owner --no-acl -h /var/run/postgresql -p 5433 -U postgres -d "$scratch" "$DUMP" || fail 'Restore failed'
+sudo -n -u postgres pg_restore --exit-on-error --single-transaction --no-owner --no-acl -h /var/run/postgresql -p 5433 -U postgres -d "$scratch" < "$DUMP" || fail 'Restore failed'
 echo '=== 4/4: Exact source/restore row counts, including research tables ==='
 for table in public.instruments public.eod_bars public.fx_eod public.instrument_identifiers public.legacy_symbol_map mkd_research.yahoo_staging mkd_research.fx_staging;do
  q="SELECT count(*) FROM $table"
