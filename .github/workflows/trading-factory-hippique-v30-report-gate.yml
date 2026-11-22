@@ -1,0 +1,53 @@
+name: Trading Factory - Hippique V30 functional report gate
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hippique-v30-report-gate
+  cancel-in-progress: false
+jobs:
+  verify-report:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 5
+    steps:
+      - name: Verify real local functional report without DB access
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime,json,pathlib,sys
+          root=pathlib.Path('/home/benoit/hippique/backups/v30')
+          stages=sorted(p for p in root.glob('release-candidate-*') if p.is_dir()) if root.is_dir() else []
+          if not stages:sys.exit('NO-GO: missing V30 release candidate')
+          report=stages[-1]/'functional-acceptance-results.json'
+          if not report.is_file() or report.is_symlink():sys.exit('NO-GO: missing or symlinked functional report')
+          try:data=json.loads(report.read_text(encoding='utf-8'))
+          except (ValueError,OSError) as exc:sys.exit('NO-GO: unreadable report: '+type(exc).__name__)
+          required={'API reports real PG availability','API bet count matches live PostgreSQL','API bets list matches live PostgreSQL','API model history matches PostgreSQL','overview settled parity','overview pending parity','overview net parity','overview staked parity','overview ROI parity','unknown day fail closed','POST forbidden /api/settings','POST forbidden /api/history-import','PG remains read-only and isolated'}
+          endpoints={'/api/health','/api/overview','/api/bets','/api/statistics','/api/data','/api/settings','/api/model-history','/api/programme','/api/v9/selections','/api/v95/health'}
+          checks=data.get('checks')
+          failures=data.get('failures')
+          errors=[]
+          if data.get('status')!='PASS':errors.append('status not PASS')
+          if not isinstance(checks,list) or len(checks)<35:errors.append('fewer than 35 checks');checks=[]
+          if len(checks)!=len(set(map(str,checks))):errors.append('duplicate checks')
+          if required.difference(checks):errors.append('missing required checks: '+','.join(sorted(required.difference(checks))))
+          if not isinstance(failures,list) or failures:errors.append('failures not empty')
+          if data.get('port')!=5434 or data.get('readonly') is not True or data.get('cutover_authorized') is not False:errors.append('isolation or cutover proof invalid')
+          responses=data.get('endpoints')
+          if not isinstance(responses,dict):errors.append('endpoints missing')
+          else:
+              for path in sorted(endpoints):
+                  if not isinstance(responses.get(path),dict) or responses[path].get('status')!=200:errors.append('HTTP 200 missing: '+path)
+          metrics=data.get('metrics')
+          if not isinstance(metrics,dict) or any(not isinstance(metrics.get(k),int) or isinstance(metrics.get(k),bool) or metrics[k]<0 for k in ('postgres_bets','postgres_model_history','postgres_payloads')):errors.append('metrics invalid')
+          try:
+              stamp=datetime.datetime.fromisoformat(data['utc'].replace('Z','+00:00'))
+              if stamp.tzinfo is None:raise ValueError('timezone missing')
+              age=(datetime.datetime.now(datetime.timezone.utc)-stamp).total_seconds()/3600
+              if not -0.25<=age<=48:errors.append('report stale or future-dated')
+          except (KeyError,TypeError,ValueError,AttributeError):errors.append('timestamp invalid')
+          print(json.dumps({'gate':'V30_FUNCTIONAL_REPORT','status':'PASS' if not errors else 'NO_GO','checks':len(checks),'failures':len(failures) if isinstance(failures,list) else None,'report_age_hours':round(age,2) if 'age' in locals() else None,'errors':errors,'readonly':True,'production_cutover':False},sort_keys=True))
+          if errors:sys.exit(1)
+          PY
