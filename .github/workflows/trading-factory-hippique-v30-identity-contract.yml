@@ -1,0 +1,26 @@
+name: Trading Factory - Hippique V30 identity contract audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-identity-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect identity helper and adapter proof contract without credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ROOT=/home/benoit/hippique
+          REF=refs/remotes/origin/finalisation/v30-operational
+          echo '=== identity helper source ==='
+          [[ -f /usr/local/sbin/hippique-v30-identity-proof ]] || exit 1
+          sed -n '1,100p' /usr/local/sbin/hippique-v30-identity-proof
+          echo '=== adapter proof contract ==='
+          git -C "$ROOT" show "$REF:runtime/isolated_pg_adapter.py" | grep -n -C 9 -E 'identity_reader|proof_sql|nonce|backend_pid' | head -180
+          echo '=== no DB connections performed ==='
