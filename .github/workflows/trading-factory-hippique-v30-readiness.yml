@@ -1,0 +1,57 @@
+name: Trading Factory - Hippique V30 readiness audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-readiness.yml'
+permissions:
+  contents: read
+concurrency:
+  group: hippique-v30-readiness
+  cancel-in-progress: false
+jobs:
+  readiness:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 5
+    steps:
+      - name: Audit UI, scheduler, backup evidence and live services (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime,json,pathlib,subprocess,urllib.request
+          root=pathlib.Path('/home/benoit/hippique')
+          base=root/'backups/v30'
+          stages=sorted(p for p in base.glob('release-candidate-*') if p.is_dir()) if base.is_dir() else []
+          stage=stages[-1] if stages else None
+          reports={}
+          for name in ('ui-build-results.json','api-pg-integrated-results.json','functional-acceptance-results.json'):
+              path=stage/name if stage else None
+              if not path or not path.is_file() or path.is_symlink():
+                  reports[name]={'status':'MISSING'}
+                  continue
+              try:
+                  obj=json.loads(path.read_text(encoding='utf-8'))
+                  reports[name]={'status':obj.get('status','UNKNOWN'),'failures':len(obj['failures']) if isinstance(obj.get('failures'),list) else None,'nextjs_build':obj.get('nextjs_build'),'cutover_authorized':obj.get('cutover_authorized')}
+              except (ValueError,OSError) as exc:reports[name]={'status':'UNREADABLE','error':type(exc).__name__}
+          endpoints={}
+          for label,url in [('api_health','http://127.0.0.1:8000/health'),('api_docs','http://127.0.0.1:8000/docs'),('nextjs','http://127.0.0.1:3000/'),('streamlit','http://127.0.0.1:8503/')]:
+              try:
+                  opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                  with opener.open(urllib.request.Request(url,method='GET'),timeout=3) as response:endpoints[label]={'http_status':response.status}
+              except Exception as exc:endpoints[label]={'status':'UNREACHABLE','error':type(exc).__name__}
+          try:
+              p=subprocess.run(['crontab','-l'],capture_output=True,text=True,timeout=5)
+              cron={'available':p.returncode==0,'hippique_references':sum('hippique' in line.lower() or 'trot' in line.lower() for line in p.stdout.splitlines() if line.strip() and not line.lstrip().startswith('#'))}
+          except (OSError,subprocess.SubprocessError):cron={'available':False}
+          backups=[]
+          if base.is_dir():
+              for path in sorted(base.glob('pg-before-t2-*'))[-10:]:
+                  if path.is_dir() and (path/'SHA256SUMS').is_file() and (path/'archive-contents.txt').is_file():
+                      backups.append({'name':path.name,'checksum_manifest_present':True,'archive_inventory_present':True,'restore_not_retested':True})
+          result={'audit':'HIPPIQUE_V30_READINESS','utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'readonly':True,'production_cutover':False,'reports':reports,'services':endpoints,'cron':cron,'backup_evidence':backups,'limitations':'Reports are historical evidence; no browser screenshots, backup restore, SQL queries or scheduled jobs executed'}
+          print(json.dumps(result,ensure_ascii=False,sort_keys=True))
+          if any(x.get('status')!='PASS' for x in reports.values()):raise SystemExit('NO-GO: at least one V30 report is not PASS')
+          print('PASS: historical release-candidate report gates; live UI and cron observations above are informational only')
+          PY
