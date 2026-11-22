@@ -1,0 +1,48 @@
+name: Trading Factory - Hippique V30 live services gate
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-live-services.yml'
+permissions:
+  contents: read
+concurrency:
+  group: hippique-v30-live-services
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect local listeners and endpoints without starting services
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime,json,socket,urllib.request,urllib.error,sys
+          services=[
+              ('api',8000,['/health','/api/health','/docs']),
+              ('nextjs',3000,['/']),
+              ('streamlit',8503,['/','/_stcore/health'])
+          ]
+          result={}
+          opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          for name,port,paths in services:
+              try:
+                  with socket.create_connection(('127.0.0.1',port),timeout=2):listening=True
+              except OSError:listening=False
+              endpoints={}
+              if listening:
+                  for path in paths:
+                      try:
+                          with opener.open(urllib.request.Request(f'http://127.0.0.1:{port}{path}',method='GET'),timeout=3) as response:
+                              endpoints[path]={'http_status':response.status}
+                      except urllib.error.HTTPError as exc:endpoints[path]={'http_status':exc.code}
+                      except Exception as exc:endpoints[path]={'error':type(exc).__name__}
+              result[name]={'port':port,'listening':listening,'endpoints':endpoints,'classification':'STOPPED_OR_UNBOUND' if not listening else 'LISTENING'}
+          print(json.dumps({'gate':'HIPPIQUE_V30_LIVE_SERVICES','utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'readonly':True,'services':result,'limitations':'No browser-based visual inspection; no service start; no production cutover'},sort_keys=True))
+          if not all(item['listening'] for item in result.values()):sys.exit('NO-GO: one or more services are stopped or not listening')
+          if not all(any(v.get('http_status')==200 for v in item['endpoints'].values()) for item in result.values()):sys.exit('NO-GO: one or more listening services lack an HTTP 200 response')
+          print('PASS: local HTTP reachability only; visual acceptance still required')
+          PY
