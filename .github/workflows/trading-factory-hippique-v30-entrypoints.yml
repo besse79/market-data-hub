@@ -1,0 +1,58 @@
+name: Trading Factory - Hippique V30 staged entrypoints audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-entrypoints.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect staged V30 API and web entrypoints, no execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,json,os,subprocess,sys
+          root=pathlib.Path('/home/benoit/hippique')
+          base=root/'backups/v30'
+          stages=sorted(p for p in base.glob('release-candidate-*') if p.is_dir()) if base.is_dir() else []
+          if not stages:sys.exit('NO-GO: no release candidate')
+          stage=stages[-1]
+          source=stage/'source'
+          candidates={
+              'api':source/'sources/web/api/main.py',
+              'web_package':source/'sources/web/web/package.json',
+              'web_lock':source/'sources/web/web/package-lock.json',
+              'web_build':source/'sources/web/web/.next',
+              'streamlit_candidates':source/'sources/test',
+              'pg_adapter':source/'runtime/isolated_pg_adapter.py',
+              'pg_config':source/'runtime/pg_connection_config.py'
+          }
+          result={}
+          for key,path in candidates.items():
+              exists=path.exists()
+              result[key]={'exists':exists,'symlink':path.is_symlink(),'kind':'dir' if exists and path.is_dir() else 'file' if exists else 'missing'}
+          py=[]
+          test=candidates['streamlit_candidates']
+          if test.is_dir():
+              py=sorted(str(p.relative_to(test)) for p in test.rglob('*.py') if ('streamlit' in p.name.lower() or p.name in ('app.py','main.py','interface.py')))
+          result['streamlit_entrypoint_candidates']=py[:30]
+          if candidates['web_package'].is_file():
+              try:
+                  pkg=json.loads(candidates['web_package'].read_text(encoding='utf-8'))
+                  result['web_scripts']=sorted(k for k in pkg.get('scripts',{}) if k in ('start','build','dev'))
+              except (OSError,ValueError):result['web_scripts']=[]
+          try:
+              stat=os.stat(stage)
+              result['stage_owner_matches_runner']=stat.st_uid==os.getuid()
+          except OSError:result['stage_owner_matches_runner']=False
+          ready=all(result[k]['exists'] and not result[k]['symlink'] for k in ('api','web_package','web_lock','pg_adapter','pg_config')) and 'start' in result.get('web_scripts',[])
+          print(json.dumps({'audit':'V30_STAGED_ENTRYPOINTS','stage':stage.name,'checks':result,'api_web_source_ready':ready,'service_start_performed':False,'database_access':False,'production_cutover':False},sort_keys=True))
+          if not ready:sys.exit('NO-GO: staged API/Web entrypoints incomplete')
+          print('PASS: staged API/Web source entrypoints present; service execution requires separate isolated startup design')
+          PY
