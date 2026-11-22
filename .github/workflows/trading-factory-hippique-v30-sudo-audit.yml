@@ -1,0 +1,40 @@
+name: Trading Factory - Hippique V30 sudo prerequisite audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-sudo-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect minimal privileged prerequisites without sudo execution
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os,pathlib,subprocess,json
+          paths=[
+            '/etc/postgresql/16/v30/tls/ca.crt',
+            '/home/benoit/.config/trading-factory/hippique-v30-pg.password',
+            '/home/benoit/hippique/backups/v30',
+          ]
+          result={'runner_uid':os.getuid(),'runner_user':os.environ.get('USER'),'privileged_actions_executed':False,'production_modified':False}
+          result['paths']={p:{'exists':pathlib.Path(p).exists(),'readable':os.access(p,os.R_OK)} for p in paths}
+          for name,args in {
+            'sudo_noninteractive':['sudo','-n','-v'],
+            'pg_cluster':['pg_lsclusters','--no-header'],
+          }.items():
+            try:
+              r=subprocess.run(args,capture_output=True,text=True,timeout=8)
+              result[name]={'exit_code':r.returncode}
+              if name=='pg_cluster':result[name]['v30_5434_online']=any('5434' in line and 'online' in line for line in r.stdout.splitlines())
+            except (OSError,subprocess.SubprocessError) as exc:result[name]={'error':type(exc).__name__}
+          print(json.dumps(result,sort_keys=True))
+          if result['sudo_noninteractive'].get('exit_code')!=0:
+            print('NO-GO: isolated V30 functional acceptance requires local sudo authorization; no attempt to bypass')
+          PY
