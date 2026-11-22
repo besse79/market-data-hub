@@ -70,9 +70,15 @@ scratch="mkd_restore_$(date -u +%Y%m%d%H%M%S)_$$"
 [[ "$scratch" =~ ^mkd_restore_[0-9]{14}_[0-9]+$ ]] || fail 'Unsafe scratch DB name'
 created=0
 cleanup(){
+ local status=$?
  if [[ "$created" == 1 ]];then
-  sudo -n -u postgres dropdb -h /var/run/postgresql -p 5433 -U postgres --if-exists "$scratch" || echo "WARNING scratch cleanup required: $scratch" >&2
+  if ! sudo -n -u postgres dropdb -h /var/run/postgresql -p 5433 -U postgres --if-exists "$scratch"; then
+   echo "ERROR: scratch cleanup required: $scratch" >&2
+   status=1
+  fi
  fi
+ if (( status != 0 )); then echo "RECETTE FAILED: report=$OUT/recette.log" >&2; fi
+ exit "$status"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -115,7 +121,7 @@ for table in public.instruments public.eod_bars public.fx_eod public.instrument_
  [[ "$source" == "$restored" ]] || fail "Mismatch $table source=$source restored=$restored"
  echo "PASS $table: $source"
 done
-echo 'PASS: verified full backup, real isolated restore and seven table counts'
+echo 'PASS: verified full backup, real isolated restore and seven table counts (scratch cleanup pending)'
 echo 'NOTE: source counts are read after backup; concurrent writes can invalidate comparison.'
 echo 'NO_GO: PIT/PAPER until provenance, FX historical coverage, mappings and app parity certified'
 echo "BACKUP=$DUMP"
