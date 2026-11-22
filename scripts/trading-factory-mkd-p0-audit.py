@@ -12,6 +12,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import psycopg
+from mkd_readiness import evaluate_readiness
 
 DSN = "host=/var/run/postgresql port=5433 dbname=market_data_hub user=benoit"
 
@@ -58,9 +59,11 @@ def run(limit: int):
         "invalid_certified": invalid_certified,
         "mic_unverified": mic_unverified,
         "identifier_currencies": currencies,
-        "pit_backtest_ready": eligible > 0 and invalid_certified == 0,
+        **evaluate_readiness(certified_bars=eligible,
+            invalid_certified=invalid_certified, invalid_ohlcv=invalid_ohlcv,
+            legacy_provenance_violations=legacy_provenance_violations,
+            mic_unverified=mic_unverified, fx_rows=fx),
         "fx_ready": fx > 0,
-        "paper_trading_authorized": False,
         "action": "NO_GO: collect and verify source provenance, FX and freshness before enabling PAPER"
     }
 
