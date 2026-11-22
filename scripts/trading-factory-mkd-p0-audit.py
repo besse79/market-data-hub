@@ -39,7 +39,10 @@ def run(limit: int):
             cur.execute("""SELECT count(*) FROM public.eod_bars
                 WHERE quality_status = 'valid'
                 AND (published_at IS NULL OR first_available_at IS NULL
-                     OR first_available_at > now() OR published_at > now())""")
+                     OR first_available_at > now() OR published_at > now()
+                     OR session_date > current_date
+                     OR published_at < session_date::timestamp
+                     OR first_available_at < session_date::timestamp)""")
             invalid_certified = cur.fetchone()[0]
             cur.execute("""SELECT currency, count(*) FROM public.instrument_identifiers
                 GROUP BY currency ORDER BY count(*) DESC LIMIT %s""", (limit,))
