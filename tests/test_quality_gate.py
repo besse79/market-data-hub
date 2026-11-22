@@ -25,3 +25,13 @@ class QualityTest(unittest.TestCase):
   self.assertIn('INVALID_OHLCV',assess_bars([a],'2026-11-20','EUR','point_in_time_verified')['reasons'])
   a['volume']=float('nan')
   self.assertIn('INVALID_OHLCV',assess_bars([a],'2026-11-20','EUR','point_in_time_verified')['reasons'])
+
+ def test_noncanonical_dates_rejected(self):
+  a=dict(day='20261119',open=10,high=11,low=9,close=10,volume=100)
+  self.assertIn('INVALID_BAR',assess_bars([a],'2026-11-20','EUR','point_in_time_verified')['reasons'])
+  a['day']='2026-11-19'
+  self.assertIn('INVALID_AS_OF',assess_bars([a],'20261120','EUR','point_in_time_verified')['reasons'])
+
+ def test_boolean_price_rejected(self):
+  a=dict(day='2026-11-19',open=True,high=11,low=0.5,close=10,volume=100)
+  self.assertIn('INVALID_BAR',assess_bars([a],'2026-11-20','EUR','point_in_time_verified')['reasons'])
