@@ -1,0 +1,50 @@
+name: Trading Factory - Hippique V30 restricted full acceptance
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-restricted-acceptance.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 20
+    steps:
+      - name: Run full isolated PG5434 functional acceptance using only restricted helpers
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ROOT=/home/benoit/hippique
+          REF=refs/remotes/origin/finalisation/v30-operational
+          [[ "$(id -un)" == benoit && -d "$ROOT/.git" ]] || exit 1
+          for p in scripts/v30-functional-acceptance-unattended-readonly.sh scripts/v30-verify-functional-report.py; do
+            git -C "$ROOT" cat-file -e "$REF:$p" || { echo "BLOCKED: uncached $p"; exit 1; }
+          done
+          [[ -x /usr/local/sbin/hippique-v30-session-proof ]] || { echo 'BLOCKED: session helper absent'; exit 1; }
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          git -C "$ROOT" show "$REF:scripts/v30-functional-acceptance-unattended-readonly.sh" > "$TMP/original.sh"
+          git -C "$ROOT" show "$REF:scripts/v30-verify-functional-report.py" > "$TMP/verify.py"
+          python3 - "$TMP/original.sh" "$TMP/restricted.sh" <<'PY'
+          import pathlib,sys
+          original=pathlib.Path(sys.argv[1]).read_text()
+          replacements={
+            "sudo -n -v || fail 'sudo noninteractive unavailable'":"# restricted sudo commands checked at invocation; no blanket sudo authorization",
+            "sudo -n -u postgres -- /usr/bin/psql -X -qAt -w -h /var/run/postgresql -p 5434 -U postgres -d hippique_test -v ON_ERROR_STOP=1 -c \"SELECT current_setting('port')||'|'||current_database()||'|'||current_setting('data_directory')||'|'||(SELECT system_identifier::text FROM pg_control_system());\"":"sudo -n -u postgres -- /usr/local/sbin/hippique-v30-identity-proof",
+            "sql=proof_sql(request['nonce'],request['backend_pid'])":"# The fixed privileged helper builds proof SQL from validated nonce and pid",
+            "['sudo','-n','-u','postgres','--','/usr/bin/psql','-X','-qAt','-w','-h','/var/run/postgresql','-p','5434','-U','postgres','-d','hippique_test','-v','ON_ERROR_STOP=1','-c',sql]":"['sudo','-n','-u','postgres','--','/usr/local/sbin/hippique-v30-session-proof',request['nonce'],str(request['backend_pid'])]",
+          }
+          for old,new in replacements.items():
+            count=original.count(old)
+            if count!=1:raise SystemExit(f'BLOCKED: expected one substitution; got {count} for {old[:65]}')
+            original=original.replace(old,new)
+          pathlib.Path(sys.argv[2]).write_text(original)
+          PY
+          bash -n "$TMP/restricted.sh"
+          bash "$TMP/restricted.sh"
+          STAGE=$(find "$ROOT/backups/v30" -maxdepth 1 -type d -name 'release-candidate-*' -print | sort | tail -1)
+          [[ -f "$STAGE/functional-acceptance-results.json" ]] || { echo 'BLOCKED: missing report'; exit 1; }
+          python3 "$TMP/verify.py" "$STAGE/functional-acceptance-results.json" --max-age-hours 1
+          echo 'PASS: V30 full functional acceptance PG5434 read-only, no production cutover'
