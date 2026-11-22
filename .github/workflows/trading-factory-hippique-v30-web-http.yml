@@ -1,0 +1,59 @@
+name: Trading Factory - Hippique V30 isolated web HTTP smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-web-http.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 20
+    steps:
+      - name: Build and run Next.js in disposable workspace on loopback port 13030
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ROOT=/home/benoit/hippique
+          STAGE=$(find "$ROOT/backups/v30" -maxdepth 1 -type d -name 'release-candidate-*' -print | sort | tail -1)
+          [[ -n "$STAGE" && -f "$STAGE/source/sources/web/web/package-lock.json" ]] || { echo 'NO-GO: missing release candidate'; exit 1; }
+          python3 - <<'PY'
+          import socket,sys
+          s=socket.socket()
+          try:s.bind(('127.0.0.1',13030))
+          except OSError:sys.exit('NO-GO: isolated port 13030 unavailable')
+          finally:s.close()
+          PY
+          TMP=$(mktemp -d)
+          CHILD=''
+          cleanup() {
+            if [[ -n "$CHILD" ]]; then
+              kill "$CHILD" 2>/dev/null || true
+              wait "$CHILD" 2>/dev/null || true
+            fi
+            rm -rf "$TMP"
+          }
+          trap cleanup EXIT
+          mkdir "$TMP/web"
+          cp -a "$STAGE/source/sources/web/web/." "$TMP/web/"
+          rm -rf "$TMP/web/node_modules" "$TMP/web/.next"
+          export NEXT_TELEMETRY_DISABLED=1 CI=1 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+          (cd "$TMP/web" && npm ci --no-audit --no-fund --ignore-scripts --prefer-offline && npm run build)
+          (cd "$TMP/web" && exec npm run start -- --hostname 127.0.0.1 --port 13030) >"$TMP/next.log" 2>&1 &
+          CHILD=$!
+          ok=0
+          for i in $(seq 1 40); do
+            if ! kill -0 "$CHILD" 2>/dev/null; then break; fi
+            if curl --noproxy '*' -fsS --max-time 2 -o "$TMP/index.html" http://127.0.0.1:13030/; then ok=1; break; fi
+            sleep 1
+          done
+          if [[ "$ok" != 1 ]]; then echo 'NO-GO: isolated Next.js HTTP failed'; tail -30 "$TMP/next.log"; exit 1; fi
+          python3 - "$TMP/index.html" <<'PY'
+          import pathlib,sys
+          content=pathlib.Path(sys.argv[1]).read_text(errors='replace').lower()
+          assert '<html' in content and '</html>' in content, 'HTTP 200 but no HTML document'
+          print('PASS: V30 Next.js actual HTTP 200 with HTML on isolated 127.0.0.1:13030')
+          print('LIMIT: frontend only, no API, no browser-based visual acceptance, no production cutover')
+          PY
