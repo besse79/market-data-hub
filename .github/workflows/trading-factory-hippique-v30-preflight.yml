@@ -1,0 +1,38 @@
+name: Trading Factory - Hippique V30 WSL preflight
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hippique-v30-wsl-preflight
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect Hippique V30 isolated environment (read only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,pathlib,subprocess,sys
+          root=pathlib.Path('/home/benoit/hippique')
+          base=root/'backups/v30'
+          stages=sorted(p for p in base.glob('release-candidate-*') if p.is_dir()) if base.is_dir() else []
+          latest=stages[-1] if stages else None
+          gates=['live-adapter-results.json','business-contract-results.json','api-isolated-smoke-results.json','api-pg-integrated-results.json','ui-build-results.json','functional-acceptance-results.json']
+          result={'check':'hippique_v30_wsl_preflight','readonly':True,'root_present':root.is_dir(),'release_candidate_present':latest is not None,'gates':{g:bool(latest and (latest/g).is_file()) for g in gates}}
+          try:
+              p=subprocess.run(['pg_lsclusters','--no-header'],capture_output=True,text=True,timeout=8,check=True)
+              clusters=[line.split() for line in p.stdout.splitlines()]
+              v30=[c for c in clusters if len(c)>=6 and c[0]=='16' and c[1]=='v30' and c[2]=='5434' and c[4]=='postgres' and c[5]=='/var/lib/postgresql/16/v30']
+              result['isolated_cluster_online']=len(v30)==1 and v30[0][3]=='online'
+              result['shared_5433_untouched']=True
+          except (OSError,subprocess.SubprocessError) as exc:
+              result['isolated_cluster_online']=False
+              result['cluster_check_error']=type(exc).__name__
+          result['ready_for_manual_acceptance']=bool(result['isolated_cluster_online'] and all(result['gates'][g] for g in gates[:3]))
+          print(json.dumps(result,ensure_ascii=False,sort_keys=True))
+          if not result['ready_for_manual_acceptance']:sys.exit('BLOCKED: isolated PG5434 or prerequisites unavailable')
+          PY
