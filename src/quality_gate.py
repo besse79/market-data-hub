@@ -1,6 +1,7 @@
 """Fail-closed, read-only market-data quality gate for EUR/USD daily OHLCV."""
 from datetime import date
 from math import isfinite
+import re
 
 
 def assess_bars(bars: list[dict], as_of: str, currency: str, provenance: str) -> dict:
@@ -15,6 +16,8 @@ def assess_bars(bars: list[dict], as_of: str, currency: str, provenance: str) ->
     if provenance != "point_in_time_verified":
         reasons.add("UNVERIFIED_PROVENANCE")
     try:
+        if not isinstance(as_of, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', as_of):
+            raise ValueError('Invalid ISO date')
         cutoff = date.fromisoformat(as_of)
     except (TypeError, ValueError):
         cutoff = None
@@ -30,8 +33,13 @@ def assess_bars(bars: list[dict], as_of: str, currency: str, provenance: str) ->
             reasons.add("INVALID_BAR")
             continue
         try:
-            day = date.fromisoformat(bar["day"])
+            raw_day = bar["day"]
+            if not isinstance(raw_day, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw_day):
+                raise ValueError('Invalid ISO session date')
+            day = date.fromisoformat(raw_day)
             values = [float(bar[k]) for k in ("open", "high", "low", "close", "volume")]
+            if any(isinstance(bar[k], bool) for k in ("open", "high", "low", "close", "volume")):
+                raise ValueError('Boolean OHLCV is not a valid quote')
             o, h, low, close, volume = values
             if (not all(isfinite(v) for v in values)
                     or min(o, h, low, close) <= 0 or volume < 0
