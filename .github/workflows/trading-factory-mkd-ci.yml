@@ -1,0 +1,40 @@
+name: Trading Factory - MKD read-only CI
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/trading-factory-mkd-ci.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mkd-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse Python source and tests without importing modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ast,pathlib,sys
+          files=sorted(set(pathlib.Path('src').rglob('*.py'))|set(pathlib.Path('tests').rglob('*.py')))
+          failures=[]
+          for path in files:
+              try: ast.parse(path.read_text(encoding='utf-8-sig'),filename=str(path))
+              except (SyntaxError,UnicodeError) as exc: failures.append((str(path),str(exc)))
+          print('Parsed Python files:',len(files))
+          for path,exc in failures:print('FAIL',path,exc)
+          if not files or failures:sys.exit(1)
+          PY
+      - name: Report CI isolation
+        run: |
+          echo 'CI source checks only; no database connections, no WSL access, no deployment'
