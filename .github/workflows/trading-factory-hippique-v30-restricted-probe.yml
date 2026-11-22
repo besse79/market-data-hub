@@ -1,0 +1,41 @@
+name: Trading Factory - Hippique V30 restricted sudo probe
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-restricted-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 5
+    steps:
+      - name: Verify restricted certificate and identity helper, no arbitrary privileged SQL
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$(id -un)" == benoit ]] || exit 1
+          echo 'Checking restricted NOPASSWD rules'
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          if sudo -n -- /usr/bin/cat /etc/postgresql/16/v30/tls/ca.crt > "$TMP/ca.crt"; then
+            [[ -s "$TMP/ca.crt" ]] || { echo 'FAIL: empty CA'; exit 1; }
+            echo 'PASS: restricted certificate read'
+          else
+            echo 'FAIL: certificate read permission'
+            exit 1
+          fi
+          if sudo -n -u postgres -- /usr/local/sbin/hippique-v30-identity-proof > "$TMP/proof.out"; then
+            python3 - "$TMP/proof.out" <<'PY'
+          import pathlib,sys
+          s=pathlib.Path(sys.argv[1]).read_text().strip()
+          assert s, 'empty proof'
+          print('PASS: restricted identity helper; output shape:', 'JSON' if s.startswith('{') else 'text', 'fields:', len(s.split('|')) if '|' in s else 'n/a')
+          PY
+          else
+            echo 'FAIL: identity helper invocation'
+            exit 1
+          fi
+          echo 'PASS: restricted sudo probe; no production changes'
