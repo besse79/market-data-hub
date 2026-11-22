@@ -88,7 +88,6 @@ echo '=== 4/4: Snapshot inventory / restored row counts and live drift detection
 "$PY" - "$OUT/inventory.json" "$scratch" <<'PY'
 import json,sys
 from pathlib import Path
-import psycopg
 inventory=json.loads(Path(sys.argv[1]).read_text())
 scratch=sys.argv[2]
 expected={'public.instruments':inventory['instruments'],
@@ -98,14 +97,15 @@ expected={'public.instruments':inventory['instruments'],
           'public.legacy_symbol_map':inventory['legacy_symbols'],
           'mkd_research.yahoo_staging':inventory['staging_counts']['yahoo'][0],
           'mkd_research.fx_staging':inventory['staging_counts']['fx'][0]}
-with psycopg.connect('host=/var/run/postgresql port=5433 dbname='+scratch+' user=benoit',
-                     options='-c default_transaction_read_only=on') as con:
- with con.cursor() as cur:
-  for table,count in expected.items():
-   cur.execute('SELECT count(*) FROM '+table)
-   actual=cur.fetchone()[0]
-   if actual!=count:raise RuntimeError(f'Backup inventory drift: {table}: before={count} restored={actual}')
-   print(f'PASS snapshot inventory: {table}: {actual}')
+import subprocess
+for table,count in expected.items():
+ result=subprocess.run(['sudo','-n','-u','postgres','psql','-XAt',
+   '-h','/var/run/postgresql','-p','5433','-U','postgres',
+   '-d',scratch,'-v','ON_ERROR_STOP=1','-c','SELECT count(*) FROM '+table],
+   check=True,text=True,capture_output=True)
+ actual=int(result.stdout.strip())
+ if actual!=count:raise RuntimeError(f'Backup inventory drift: {table}: before={count} restored={actual}')
+ print(f'PASS snapshot inventory: {table}: {actual}')
 PY
 
 for table in public.instruments public.eod_bars public.fx_eod public.instrument_identifiers public.legacy_symbol_map mkd_research.yahoo_staging mkd_research.fx_staging;do
