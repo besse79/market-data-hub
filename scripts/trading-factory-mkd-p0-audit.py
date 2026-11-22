@@ -6,9 +6,7 @@ used: peer authentication to the already verified local market_data_hub DB.
 """
 import argparse
 import json
-from collections import Counter
 from datetime import datetime, timezone
-from decimal import Decimal
 from pathlib import Path
 
 import psycopg
@@ -29,7 +27,9 @@ def run(limit: int):
             cur.execute("SELECT count(*) FROM public.fx_eod")
             fx = cur.fetchone()[0]
             cur.execute("""SELECT count(*) FROM public.eod_bars
-                WHERE open <= 0 OR close <= 0 OR high < greatest(open,close,low)
+                WHERE open IS NULL OR high IS NULL OR low IS NULL OR close IS NULL
+                OR volume IS NULL OR open <= 0 OR high <= 0 OR low <= 0
+                OR close <= 0 OR high < greatest(open,close,low)
                 OR low > least(open,close,high) OR volume < 0""")
             invalid_ohlcv = cur.fetchone()[0]
             cur.execute("""SELECT count(*) FROM public.eod_bars
@@ -39,7 +39,7 @@ def run(limit: int):
             cur.execute("""SELECT count(*) FROM public.eod_bars
                 WHERE quality_status = 'valid'
                 AND (published_at IS NULL OR first_available_at IS NULL
-                     OR first_available_at > now())""")
+                     OR first_available_at > now() OR published_at > now())""")
             invalid_certified = cur.fetchone()[0]
             cur.execute("""SELECT currency, count(*) FROM public.instrument_identifiers
                 GROUP BY currency ORDER BY count(*) DESC LIMIT %s""", (limit,))
@@ -63,7 +63,8 @@ def run(limit: int):
             invalid_certified=invalid_certified, invalid_ohlcv=invalid_ohlcv,
             legacy_provenance_violations=legacy_provenance_violations,
             mic_unverified=mic_unverified, fx_rows=fx),
-        "fx_ready": fx > 0,
+        "fx_rows_present": fx > 0,
+        "fx_historical_coverage_verified": False,
         "action": "NO_GO: collect and verify source provenance, FX and freshness before enabling PAPER"
     }
 
