@@ -1,0 +1,33 @@
+name: Trading Factory - Hippique V30 fresh acceptance from remote snapshot
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-fresh-remote.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 20
+    steps:
+      - name: Run immutable locally cached V30 script without modifying dirty working tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ROOT=/home/benoit/hippique
+          REF=refs/remotes/origin/finalisation/v30-operational
+          [[ "$(id -un)" == benoit && -d "$ROOT/.git" ]] || { echo 'NO-GO: wrong owner or root'; exit 1; }
+          git -C "$ROOT" cat-file -e "$REF:scripts/v30-functional-acceptance-unattended-readonly.sh" || { echo 'NO-GO: remote script not cached locally; no fetch/pull allowed'; exit 1; }
+          git -C "$ROOT" cat-file -e "$REF:scripts/v30-verify-functional-report.py" || { echo 'NO-GO: validator not cached locally'; exit 1; }
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          git -C "$ROOT" show "$REF:scripts/v30-functional-acceptance-unattended-readonly.sh" > "$TMP/acceptance.sh"
+          git -C "$ROOT" show "$REF:scripts/v30-verify-functional-report.py" > "$TMP/verify.py"
+          sha256sum "$TMP/acceptance.sh" "$TMP/verify.py"
+          bash "$TMP/acceptance.sh"
+          STAGE=$(find "$ROOT/backups/v30" -maxdepth 1 -type d -name 'release-candidate-*' -print | sort | tail -1)
+          [[ -n "$STAGE" && -f "$STAGE/api-pg-integrated-results.json" ]] || { echo 'NO-GO: fresh report missing'; exit 1; }
+          python3 "$TMP/verify.py" "$STAGE/api-pg-integrated-results.json" --max-age-hours 1
+          echo 'PASS: fresh isolated PG5434 acceptance; working tree untouched'
