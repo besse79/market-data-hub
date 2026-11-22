@@ -17,9 +17,10 @@ DSN = "host=/var/run/postgresql port=5433 dbname=market_data_hub user=benoit"
 
 def run(limit: int):
     with psycopg.connect(DSN, options="-c default_transaction_read_only=on") as conn:
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         with conn.cursor() as cur:
-            cur.execute("SELECT current_database(), current_user")
-            assert cur.fetchone() == ("market_data_hub", "benoit"), "Unexpected database identity"
+            cur.execute("SELECT current_database(), current_user, current_setting('port'), current_setting('transaction_read_only'), current_setting('transaction_isolation')")
+            assert cur.fetchone() == ("market_data_hub", "benoit", "5433", "on", "repeatable read"), "Unexpected database or transaction mode"
             cur.execute("SELECT quality_status, count(*), min(session_date), max(session_date) FROM public.eod_bars GROUP BY quality_status ORDER BY quality_status")
             quality = [{"status": s, "count": n, "min_session": str(lo), "max_session": str(hi)} for s,n,lo,hi in cur.fetchall()]
             cur.execute("SELECT count(*) FROM public.instruments")
