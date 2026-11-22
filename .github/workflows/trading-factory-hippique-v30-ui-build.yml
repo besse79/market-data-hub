@@ -1,0 +1,37 @@
+name: Trading Factory - Hippique V30 isolated UI build
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-ui-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 20
+    steps:
+      - name: Build staged V30 Next.js in disposable workspace and check Streamlit syntax
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ROOT=/home/benoit/hippique
+          STAGE=$(find "$ROOT/backups/v30" -maxdepth 1 -type d -name 'release-candidate-*' -print | sort | tail -1)
+          [[ -n "$STAGE" && -f "$STAGE/source/sources/web/web/package-lock.json" && -f "$STAGE/source/sources/test/app.py" ]] || { echo 'NO-GO: staged UI sources missing'; exit 1; }
+          command -v node >/dev/null && command -v npm >/dev/null
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          mkdir "$TMP/web"
+          cp -a "$STAGE/source/sources/web/web/." "$TMP/web/"
+          rm -rf "$TMP/web/node_modules" "$TMP/web/.next"
+          export NEXT_TELEMETRY_DISABLED=1 CI=1 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+          (cd "$TMP/web" && npm ci --no-audit --no-fund --ignore-scripts --prefer-offline && npm run build)
+          python3 - "$STAGE/source/sources/test" <<'PY'
+          import pathlib,sys
+          root=pathlib.Path(sys.argv[1]);paths=list(root.rglob('*.py'))
+          assert paths,'No Python sources'
+          for p in paths:compile(p.read_bytes(),str(p),'exec')
+          print('PASS: Next.js isolated build; Streamlit Python syntax:',len(paths),'files')
+          print('No production DB or service touched; no visual/browser acceptance')
+          PY
