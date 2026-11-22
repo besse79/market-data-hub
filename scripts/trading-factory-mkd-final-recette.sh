@@ -21,13 +21,16 @@ import psycopg
 out=Path(sys.argv[1])
 with psycopg.connect('host=/var/run/postgresql port=5433 dbname=market_data_hub user=benoit',
                      options='-c default_transaction_read_only=on') as con:
+ con.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
  with con.cursor() as cur:
-  cur.execute('SELECT current_database(),current_user,current_setting(\'port\')')
+  cur.execute('SELECT current_database(),current_user,current_setting(\'port\'),current_setting(\'transaction_read_only\'),current_setting(\'transaction_isolation\')')
   identity=cur.fetchone()
-  if identity!=('market_data_hub','benoit','5433'):raise RuntimeError('DB identity mismatch')
+  if identity!=('market_data_hub','benoit','5433','on','repeatable read'):raise RuntimeError('DB identity or snapshot mode mismatch')
   cur.execute('SELECT count(*) FROM public.eod_bars'); bars=cur.fetchone()[0]
   cur.execute('SELECT count(*) FROM public.fx_eod'); fx=cur.fetchone()[0]
   cur.execute('SELECT count(*) FROM public.instruments'); instruments=cur.fetchone()[0]
+  cur.execute('SELECT count(*) FROM public.instrument_identifiers'); identifiers=cur.fetchone()[0]
+  cur.execute('SELECT count(*) FROM public.legacy_symbol_map'); legacy_symbols=cur.fetchone()[0]
   cur.execute("""SELECT count(DISTINCT instrument_id) FROM public.instrument_identifiers
     WHERE lower(provider)='yahoo' AND valid_to IS NULL"""); mapped=cur.fetchone()[0]
   cur.execute("SELECT to_regclass('mkd_research.yahoo_staging')::text,to_regclass('mkd_research.fx_staging')::text")
@@ -43,6 +46,7 @@ with psycopg.connect('host=/var/run/postgresql port=5433 dbname=market_data_hub 
   unverified_mic=cur.fetchone()[0]
 result={'db':identity,'instruments':instruments,'mapped_yahoo':mapped,
         'unmapped':instruments-mapped,'legacy_eod_bars':bars,'fx_eod':fx,
+        'identifiers':identifiers,'legacy_symbols':legacy_symbols,
         'staging_counts':counts,'certified_eod_bars':certified,
         'unverified_mic':unverified_mic,'pit_eligible':False,'paper_eligible':False}
 (out/'inventory.json').write_text(json.dumps(result,indent=2,default=str)+'\n')
@@ -78,7 +82,32 @@ existing=$(sudo -n -u postgres psql -XAt -h /var/run/postgresql -p 5433 -U postg
 sudo -n -u postgres createdb -h /var/run/postgresql -p 5433 -U postgres "$scratch" || fail 'Cannot create scratch DB'
 created=1
 sudo -n -u postgres pg_restore --exit-on-error --single-transaction --no-owner --no-acl -h /var/run/postgresql -p 5433 -U postgres -d "$scratch" < "$DUMP" || fail 'Restore failed'
-echo '=== 4/4: Exact source/restore row counts, including research tables ==='
+echo '=== 4/4: Snapshot inventory / restored row counts and live drift detection ==='
+# Compare the restored dump against the earlier inventory, not merely the live
+# source (which could have changed after pg_dump). Stop on detected drift.
+"$PY" - "$OUT/inventory.json" "$scratch" <<'PY'
+import json,sys
+from pathlib import Path
+import psycopg
+inventory=json.loads(Path(sys.argv[1]).read_text())
+scratch=sys.argv[2]
+expected={'public.instruments':inventory['instruments'],
+          'public.eod_bars':inventory['legacy_eod_bars'],
+          'public.fx_eod':inventory['fx_eod'],
+          'public.instrument_identifiers':inventory['identifiers'],
+          'public.legacy_symbol_map':inventory['legacy_symbols'],
+          'mkd_research.yahoo_staging':inventory['staging_counts']['yahoo'][0],
+          'mkd_research.fx_staging':inventory['staging_counts']['fx'][0]}
+with psycopg.connect('host=/var/run/postgresql port=5433 dbname='+scratch+' user=benoit',
+                     options='-c default_transaction_read_only=on') as con:
+ with con.cursor() as cur:
+  for table,count in expected.items():
+   cur.execute('SELECT count(*) FROM '+table)
+   actual=cur.fetchone()[0]
+   if actual!=count:raise RuntimeError(f'Backup inventory drift: {table}: before={count} restored={actual}')
+   print(f'PASS snapshot inventory: {table}: {actual}')
+PY
+
 for table in public.instruments public.eod_bars public.fx_eod public.instrument_identifiers public.legacy_symbol_map mkd_research.yahoo_staging mkd_research.fx_staging;do
  q="SELECT count(*) FROM $table"
  source=$(sudo -n -u postgres psql -XAt -h /var/run/postgresql -p 5433 -U postgres -d market_data_hub -v ON_ERROR_STOP=1 -c "$q")
