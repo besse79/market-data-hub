@@ -1,0 +1,52 @@
+name: Trading Factory - Hippique V30 final GO inventory
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-go-inventory.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 8
+    steps:
+      - name: Evaluate PostgreSQL-only readiness without changing applications or databases
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ROOT=/home/benoit/hippique
+          REF=refs/remotes/origin/finalisation/v30-operational
+          [[ -d "$ROOT/.git" ]] || exit 1
+          echo '=== V30 RELEASE TARGET ==='
+          git -C "$ROOT" show "$REF:runtime/v30_cutover_plan.py" | python3 -c 'import sys,ast; t=ast.parse(sys.stdin.read()); print("Cutover gate source parses:", isinstance(t,ast.Module))'
+          echo '=== SERVICES (no changes) ==='
+          for port in 8000 3000 8503 5434; do
+            if (echo > /dev/tcp/127.0.0.1/$port) >/dev/null 2>&1; then echo "port_$port=LISTEN"; else echo "port_$port=STOPPED"; fi
+          done
+          echo '=== POSTGRES CLUSTERS ==='
+          pg_lsclusters --no-header | awk '$1==16 {print "version="$1,"cluster="$2,"port="$3,"status="$4}'
+          echo '=== REQUIRED PRIVATE SOURCES: paths only, no content ==='
+          for path in "$ROOT"/data "$ROOT"/backups/v30 "$ROOT"/.git; do
+            if [[ -d "$path" ]]; then echo "present: $path"; else echo "missing: $path"; fi
+          done
+          echo '=== SQLITE READONLY FILE METADATA ONLY ==='
+          if [[ -f "$ROOT/data/hippique.sqlite3" ]]; then stat -c 'historical_sqlite_bytes=%s;mode=%a' "$ROOT/data/hippique.sqlite3"; else echo 'historical_sqlite_absent'; fi
+          echo '=== RELEASE CANDIDATE EVIDENCE ==='
+          STAGE=$(find "$ROOT/backups/v30" -maxdepth 1 -type d -name 'release-candidate-*' -print | sort | tail -1)
+          [[ -n "$STAGE" ]] || exit 1
+          python3 - "$STAGE" <<'PY'
+          import json,pathlib,sys
+          p=pathlib.Path(sys.argv[1])
+          for name in ['functional-acceptance-results.json','live-adapter-results.json','business-contract-results.json','api-isolated-smoke-results.json']:
+              f=p/name
+              if not f.is_file():print(name+': MISSING');continue
+              try:
+                  d=json.loads(f.read_text())
+                  print(name+': status='+str(d.get('status','UNSPECIFIED'))+'; checks='+str(len(d.get('checks',[])))+'; failures='+str(len(d.get('failures',[]))))
+              except Exception as e:print(name+': INVALID '+type(e).__name__)
+          PY
+          echo '=== CUTOVER POLICY ==='
+          git -C "$ROOT" show "$REF:runtime/v30_cutover_plan.py" | grep -E 'cutover_executor_enabled|pending_live_implementation_and_proofs|distinct_cutover_authorization' | head -8
+          echo 'INVENTORY_COMPLETE: READ_ONLY; NO CUTOVER; NO SQLITE WRITES'
