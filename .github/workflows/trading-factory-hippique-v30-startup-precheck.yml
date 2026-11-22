@@ -1,0 +1,38 @@
+name: Trading Factory - Hippique V30 service startup precheck
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-startup-precheck.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 5
+    steps:
+      - name: Identify safe local startup prerequisites (no execution)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib,os,subprocess
+          root=pathlib.Path('/home/benoit/hippique')
+          paths={
+            'manager':root/'bin/hippique-apps.sh',
+            'v29_services':root/'v29-services.py',
+            'v29_runner':root/'run-v29.py',
+            'venv_python':root/'.v29-venv/bin/python',
+            'web_build':root/'.v29-web',
+            'api_entry':root/'sources/web/start-api.sh',
+            'web_entry':root/'sources/web/start-web.sh'
+          }
+          files={key:{'exists':path.exists(),'symlink':path.is_symlink(),'owner_ok':path.exists() and path.stat().st_uid==os.getuid()} for key,path in paths.items()}
+          try:
+            p=subprocess.run(['git','-C',str(root),'status','--porcelain'],capture_output=True,text=True,timeout=8)
+            git={'available':p.returncode==0,'dirty':bool(p.stdout.strip())}
+          except (OSError,subprocess.SubprocessError):git={'available':False}
+          safe=all(files[k]['exists'] and not files[k]['symlink'] and files[k]['owner_ok'] for k in ('manager','v29_services','v29_runner','venv_python','web_build'))
+          print(json.dumps({'check':'HIPPIQUE_V30_STARTUP_PRECHECK','startup_executed':False,'safe_legacy_manager_prerequisites':safe,'files':files,'git':git,'production_sqlite_untouched':True,'recommendation':'No automatic V29 startup: verify staged V30 app entrypoints and read-only PG configuration before starting services'},sort_keys=True))
+          PY
