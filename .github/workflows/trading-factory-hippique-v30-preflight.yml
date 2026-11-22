@@ -32,6 +32,17 @@ jobs:
           except (OSError,subprocess.SubprocessError) as exc:
               result['isolated_cluster_online']=False
               result['cluster_check_error']=type(exc).__name__
+          result['report_verification']={}
+          if latest:
+              report=latest/'functional-acceptance-results.json'
+              validator=root/'scripts/v30-verify-functional-report.py'
+              if not validator.is_file():
+                  result['report_verification']={'status':'NOT_VERIFIED','reason':'validator not installed locally'}
+              elif not report.is_file():
+                  result['report_verification']={'status':'MISSING'}
+              else:
+                  proc=subprocess.run([sys.executable,str(validator),str(report)],capture_output=True,text=True,timeout=20)
+                  result['report_verification']={'status':'PASS' if proc.returncode==0 else 'FAIL','details':(proc.stdout+proc.stderr).strip()[:400]}
           result['ready_for_manual_acceptance']=bool(result['isolated_cluster_online'] and all(result['gates'][g] for g in gates[:3]))
           print(json.dumps(result,ensure_ascii=False,sort_keys=True))
           if not result['ready_for_manual_acceptance']:sys.exit('BLOCKED: isolated PG5434 or prerequisites unavailable')
