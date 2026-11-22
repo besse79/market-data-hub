@@ -71,6 +71,8 @@ cleanup(){
  fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 existing=$(sudo -n -u postgres psql -XAt -h /var/run/postgresql -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_database WHERE datname='$scratch'")
 [[ "$existing" == 0 ]] || fail 'Scratch DB already exists'
 sudo -n -u postgres createdb -h /var/run/postgresql -p 5433 -U postgres "$scratch" || fail 'Cannot create scratch DB'
@@ -85,6 +87,7 @@ for table in public.instruments public.eod_bars public.fx_eod public.instrument_
  echo "PASS $table: $source"
 done
 echo 'PASS: verified full backup, real isolated restore and seven table counts'
+echo 'NOTE: source counts are read after backup; concurrent writes can invalidate comparison.'
 echo 'NO_GO: PIT/PAPER until provenance, FX historical coverage, mappings and app parity certified'
 echo "BACKUP=$DUMP"
 echo "REPORT=$OUT/recette.log"
