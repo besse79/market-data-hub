@@ -1,0 +1,46 @@
+name: Trading Factory - Hippique V30 migration gate assessment
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-migration-gates.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  assess:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 8
+    steps:
+      - name: Assess actual V30 cutover evidence and enumerate missing gates
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ROOT=/home/benoit/hippique
+          REF=refs/remotes/origin/finalisation/v30-operational
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          git -C "$ROOT" show "$REF:runtime/v30_cutover_plan.py" > "$TMP/cutover.py"
+          python3 - "$TMP/cutover.py" "$ROOT/backups/v30" <<'PY'
+          import importlib.util,json,pathlib,sys
+          spec=importlib.util.spec_from_file_location('cutover',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+          root=pathlib.Path(sys.argv[2])
+          stage=sorted(root.glob('release-candidate-*'))[-1]
+          def read(name):
+              try:return json.loads((stage/name).read_text())
+              except Exception:return {}
+          functional=read('functional-acceptance-results.json')
+          adapter=read('live-adapter-results.json')
+          business=read('pg-business-live-results.json')
+          print('FUNCTIONAL',functional.get('status'),'checks',len(functional.get('checks',[])),'failures',len(functional.get('failures',[])))
+          print('ADAPTER',adapter.get('status'),'BUSINESS',business.get('status'))
+          evidence={k:False for k in m.REQUIRED}
+          # No individual gate may be inferred from aggregate PASS reports.
+          result=m.assess(evidence)
+          print('GO_GATE_COUNT',len(m.REQUIRED))
+          print('GATES_WITH_INDIVIDUAL_END_TO_END_PROOF',0)
+          for k in result['missing']:print('NOT_YET_PROVEN',k)
+          print('CUTOVER_EXECUTOR_ENABLED',m.plan()['cutover_executor_enabled'])
+          print('RESULT',result['status'])
+          PY
+          echo 'NO CHANGES TO SQLITE, POSTGRES, SERVICES OR CRON'
