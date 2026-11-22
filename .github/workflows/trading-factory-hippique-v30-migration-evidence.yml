@@ -1,0 +1,43 @@
+name: Trading Factory - Hippique V30 migration evidence audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trading-factory-hippique-v30-migration-evidence.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, linux, trading-factory]
+    timeout-minutes: 8
+    steps:
+      - name: Audit latest migration reconciliation and safe release evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ROOT=/home/benoit/hippique
+          STAGE=$(find "$ROOT/backups/v30" -maxdepth 1 -type d -name 'release-candidate-*' -print | sort | tail -1)
+          [[ -d "$STAGE" ]] || exit 1
+          python3 - "$STAGE" <<'PY'
+          import pathlib,json,sys,collections
+          root=pathlib.Path(sys.argv[1])
+          print('RELEASE_CANDIDATE',root.name)
+          for p in sorted(root.rglob('*.json')):
+              if p.stat().st_size>2000000:continue
+              try:d=json.loads(p.read_text())
+              except Exception:continue
+              if not isinstance(d,(dict,list)):continue
+              keys=list(d) if isinstance(d,dict) else []
+              name=p.relative_to(root)
+              print('JSON',str(name),'type',type(d).__name__,'keys',','.join(str(k) for k in keys[:18]))
+              if isinstance(d,dict):
+                  for k in ('status','result','passed','failed','cutover_authorized','read_only','readonly','rows','tables','missing','errors','failures'):
+                      if k in d:
+                          v=d[k]
+                          if isinstance(v,(list,dict)):v='count:'+str(len(v))
+                          print('  ',k,str(v)[:130])
+          PY
+          echo '=== migration command entrypoints ==='
+          git -C "$ROOT" show refs/remotes/origin/finalisation/v30-operational:scripts/v30-migration-readiness.sh | sed -n '1,130p'
+          echo 'AUDIT_COMPLETE; NO DB CONNECTION; NO MODIFICATIONS'
