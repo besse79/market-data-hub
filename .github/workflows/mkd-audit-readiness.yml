@@ -1,0 +1,30 @@
+name: MKD audit readiness CI
+on:
+  push:
+    paths:
+      - 'scripts/mkd_readiness.py'
+      - 'scripts/trading-factory-mkd-p0-audit.py'
+      - 'scripts/trading-factory-mkd-final-recette.sh'
+      - 'tests/test_mkd_readiness.py'
+      - '.github/workflows/mkd-audit-readiness.yml'
+  pull_request:
+    paths:
+      - 'scripts/mkd_readiness.py'
+      - 'scripts/trading-factory-mkd-p0-audit.py'
+      - 'scripts/trading-factory-mkd-final-recette.sh'
+      - 'tests/test_mkd_readiness.py'
+      - '.github/workflows/mkd-audit-readiness.yml'
+permissions:
+  contents: read
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p 'test_mkd_readiness.py' -v
+      - run: python -m compileall -q scripts/mkd_readiness.py scripts/trading-factory-mkd-p0-audit.py
+      - run: bash -n scripts/trading-factory-mkd-final-recette.sh

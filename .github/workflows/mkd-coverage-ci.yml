@@ -1,0 +1,23 @@
+name: MKD coverage audit unit tests
+on:
+  push:
+    paths:
+      - 'scripts/mkd_coverage_audit.py'
+      - 'tests/test_mkd_coverage_audit.py'
+      - '.github/workflows/mkd-coverage-ci.yml'
+  pull_request:
+    paths:
+      - 'scripts/mkd_coverage_audit.py'
+      - 'tests/test_mkd_coverage_audit.py'
+      - '.github/workflows/mkd-coverage-ci.yml'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'psycopg[binary]>=3,<4'
+      - run: PYTHONPATH=scripts python -m unittest discover -s tests -p 'test_mkd_coverage_audit.py' -v
+      - run: python -m compileall -q scripts/mkd_coverage_audit.py
