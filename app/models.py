@@ -42,7 +42,7 @@ class Bar(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     first_available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    quality_status: Mapped[str] = mapped_column(String(20), default="valid")
+    quality_status: Mapped[str] = mapped_column(String(20), default="staged_unverified")
     __table_args__ = (
         UniqueConstraint("instrument_id", "session_date", "provider", "revision", name="uq_bar_revision"),
         CheckConstraint("high >= open AND high >= close AND high >= low AND low <= open AND low <= close AND low >= 0 AND volume >= 0", name="valid_ohlcv"),
