@@ -46,3 +46,25 @@ def test_no_future_first_availability():
     row["first_available_at"] = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
     with pytest.raises(InvalidMarketData, match="future first availability"):
         normalize_bar(row)
+
+def test_yahoo_never_certified_on_import():
+    """Yahoo history has no independently evidenced original publication time."""
+    from unittest.mock import Mock
+    from app.ingestion import import_bar
+    row = sample()
+    row["provider"] = "yahoo"
+    db = Mock()
+    db.scalars.return_value.all.return_value = []
+    assert import_bar(db, row) == "created"
+    saved = db.add.call_args.args[0]
+    assert saved.quality_status == "staged_unverified"
+    assert saved.first_available_at is not None
+
+
+def test_other_provider_preserves_existing_contract():
+    from unittest.mock import Mock
+    from app.ingestion import import_bar
+    db = Mock()
+    db.scalars.return_value.all.return_value = []
+    assert import_bar(db, sample()) == "created"
+    assert db.add.call_args.args[0].quality_status == "valid"
