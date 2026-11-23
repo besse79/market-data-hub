@@ -82,7 +82,7 @@ def import_bar(db: Session, raw: dict, *, dry_run: bool = False) -> str:
         currency=b.currency, open=b.open, high=b.high, low=b.low,
         close=b.close, volume=b.volume, published_at=b.published_at,
         first_available_at=b.first_available_at, ingested_at=datetime.now(timezone.utc),
-        quality_status="valid",
+        quality_status="staged_unverified" if b.provider == "yahoo" else "valid",
     ))
     db.flush()
     return "revised" if rows else "created"
