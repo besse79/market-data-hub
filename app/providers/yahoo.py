@@ -1,7 +1,7 @@
-"""Normalize daily Yahoo Finance candles without fabricating publication timestamps.
+"""Normalize daily Yahoo Finance candles as unverified observations.
 
 Yahoo's historical candles do not establish when a record was first available.
-The ingestion caller MUST provide independently recorded availability metadata.
+Observation time is not proof of original Yahoo publication time.\nThe ingestion layer MUST keep these rows staged_unverified.
 """
 from datetime import date, datetime, timezone
 from decimal import Decimal
