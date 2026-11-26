@@ -29,7 +29,7 @@ def normalize_bar(raw: dict) -> DailyBar:
     try:
         instrument_id = UUID(str(raw["instrument_id"]))
         session_date = date.fromisoformat(str(raw["session_date"]))
-        provider = str(raw["provider"]).strip()
+        provider = raw["provider"].strip().lower() if isinstance(raw["provider"], str) else ""
         currency = str(raw["currency"]).strip().upper()
         published_at = datetime.fromisoformat(str(raw["published_at"]).replace("Z", "+00:00"))
         first_available_at = datetime.fromisoformat(str(raw["first_available_at"]).replace("Z", "+00:00"))
