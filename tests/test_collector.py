@@ -40,3 +40,14 @@ def test_reject_duplicate_session_before_second_import(monkeypatch):
                     start=session, end=date(2026, 11, 14),
                     fetch=lambda *args: [(session, sample), (session, sample)])
     assert len(saved) == 1
+
+
+def test_empty_provider_response_is_not_success(monkeypatch):
+    from app import collector
+    save = Mock()
+    monkeypatch.setattr(collector, 'import_bar', save)
+    with pytest.raises(ValueError, match='no candles'):
+        collect_one(object(), instrument_id=uuid4(), symbol='EMPTY', currency='EUR',
+                    start=date(2026, 11, 9), end=date(2026, 11, 14),
+                    fetch=lambda *args: [])
+    save.assert_not_called()
