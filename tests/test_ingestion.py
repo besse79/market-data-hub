@@ -68,3 +68,12 @@ def test_other_provider_preserves_existing_contract():
     db.scalars.return_value.all.return_value = []
     assert import_bar(db, sample()) == "created"
     assert db.add.call_args.args[0].quality_status == "valid"
+
+
+def test_provider_canonicalization_prevents_yahoo_provenance_bypass():
+    row = sample()
+    row["provider"] = " Yahoo "
+    assert normalize_bar(row).provider == "yahoo"
+    row["provider"] = None
+    with pytest.raises(InvalidMarketData):
+        normalize_bar(row)
