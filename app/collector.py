@@ -41,7 +41,9 @@ def collect_one(db: Session, *, instrument_id, symbol: str, currency: str,
         raise ValueError("end must be after start")
     if end > datetime.now(timezone.utc).date() + timedelta(days=1):
         raise ValueError("future collection range")
-    rows = fetch(symbol, start, end)
+    rows = list(fetch(symbol, start, end))
+    if not rows:
+        raise ValueError(f"Yahoo returned no candles for {symbol} in requested range")
     observed_at = datetime.now(timezone.utc)
     stats = {"created": 0, "revised": 0, "unchanged": 0}
     seen_dates = set()
