@@ -39,8 +39,14 @@ jobs:
           systemctl --user daemon-reload
           systemctl --user enable --now mkd-api-8100.service
           for i in {1..20}; do
-            if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8100/health/live; then exit 0; fi
+            if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8100/health/live; then break; fi
             sleep 1
           done
-          systemctl --user status mkd-api-8100.service --no-pager || true
-          exit 1
+          curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8100/health/live
+          systemctl --user is-active mkd-api-8100.service
+          PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=30000' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT column_name,data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='legacy_symbol_map' ORDER BY ordinal_position;
+          SELECT count(DISTINCT instrument_id),currency FROM eod_bars WHERE currency IN ('EUR','USD') GROUP BY currency;
+          SELECT provider,currency,count(*) FROM instrument_identifiers GROUP BY provider,currency ORDER BY provider,currency;
+          SQL
+          find "$HOME/cto-weinstein-trader" -maxdepth 4 -type f -iname '*manifest*.csv' -not -path '*/node_modules/*' -print 2>/dev/null | head -30
