@@ -91,6 +91,7 @@ jobs:
                       info = yf.Ticker(key[0]).get_info()
                       mic = exchanges.get(info.get('exchange'))
                       if info.get('symbol','').upper() != key[0].upper() or info.get('currency') != key[1] or info.get('quoteType') != 'EQUITY' or not mic:
+                          print(json.dumps({'unresolved':key[0],'reported_symbol':info.get('symbol'),'currency':info.get('currency'),'exchange':info.get('exchange'),'quote_type':info.get('quoteType')}),flush=True)
                           continue
                       record = dict(symbol=key[0],currency=key[1],instrument_id=key[2],mic=mic,exchange=info['exchange'],observed_at=datetime.now(timezone.utc).isoformat())
                       out.write(json.dumps(record)+'\n'); out.flush()
