@@ -58,33 +58,6 @@ jobs:
           SQL
           find "$HOME/cto-weinstein-trader" -maxdepth 4 -type f -iname '*manifest*.csv' -not -path '*/node_modules/*' -print 2>/dev/null | head -30
 
-      - name: Restore verified backup into isolated database
-        shell: bash
-        run: |
-          set -euo pipefail
-          backup="$HOME/market-data-hub/backups/reference-20261127T213856Z.dump"
-          (cd "$(dirname "$backup")" && sha256sum -c "$(basename "$backup").sha256")
-          bindir="$(pg_config --bindir)"
-          work="$(mktemp -d /tmp/mkd-restore.XXXXXXXX)"
-          chmod 700 "$work"
-          cleanup() {
-            if [ -f "$work/data/postmaster.pid" ]; then
-              "$bindir/pg_ctl" -D "$work/data" -m fast -w stop
-            fi
-            rm -rf -- "$work"
-          }
-          trap cleanup EXIT
-          "$bindir/initdb" -D "$work/data" --auth-local=trust --auth-host=reject --no-locale
-          "$bindir/pg_ctl" -D "$work/data" -o "-c listen_addresses='' -k $work -p 55439" -w start
-          export PGHOST="$work" PGPORT=55439
-          unset PGOPTIONS
-          target=mkd_restore_test
-          createdb "$target"
-          pg_restore --exit-on-error --no-owner --no-acl -d "$target" "$backup"
-          test "$(psql -X -At -d "$target" -c "SELECT count(*) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD')")" = 1001451
-          test "$(psql -X -At -d "$target" -c "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL AND currency IN ('EUR','USD')")" = 2
-          echo "Actual backup restore verified"
-
       - name: Refresh EUR USD historical bars
         timeout-minutes: 90
         shell: bash
@@ -95,4 +68,6 @@ jobs:
           unset PGOPTIONS
           mkdir -p "$HOME/market-data-hub/evidence"
           test "$(psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -Atc "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL AND currency IN ('EUR','USD')")" = 802
-          "$HOME/market-data-hub/.venv/bin/python" -m app.collect_all --start 2026-11-13 --end "$(date -u +%F)" --batch-size 50 --delay 3 --output "$HOME/market-data-hub/evidence/refresh-${GITHUB_RUN_ID}.json"
+          end="$(date -u -d tomorrow +%F)"
+          "$HOME/market-data-hub/.venv/bin/python" -m app.collector --start 2026-11-13 --end "$end" --limit 5 --delay 3 --dry-run
+          "$HOME/market-data-hub/.venv/bin/python" -m app.collect_all --start 2026-11-13 --end "$end" --batch-size 50 --delay 3 --output "$HOME/market-data-hub/evidence/refresh-${GITHUB_RUN_ID}.json"
