@@ -91,3 +91,23 @@ def test_ascii_currency_canonicalization():
     row = sample()
     row["currency"] = " eur "
     assert normalize_bar(row).currency == "EUR"
+
+
+def test_legacy_observation_preserves_history_and_is_idempotent():
+    from unittest.mock import Mock
+    from types import SimpleNamespace
+    from app.ingestion import import_bar
+    row = sample()
+    row["provider"] = "yahoo"
+    legacy = SimpleNamespace(**row, revision=1, quality_status="legacy_unverified")
+    db = Mock()
+    db.scalars.return_value.all.return_value = [legacy]
+    assert import_bar(db, row) == "revised"
+    new = db.add.call_args.args[0]
+    assert new.revision == 2
+    assert new.quality_status == "staged_unverified"
+    assert legacy.quality_status == "legacy_unverified"
+    db.reset_mock()
+    db.scalars.return_value.all.return_value = [new, legacy]
+    assert import_bar(db, row) == "unchanged"
+    db.add.assert_not_called()
