@@ -33,6 +33,9 @@ jobs:
           else
             install -m 644 deploy/systemd/mkd-api-8100.service "$unit"
           fi
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          test -S "$XDG_RUNTIME_DIR/bus" || { echo "User systemd bus absent"; exit 1; }
           systemctl --user daemon-reload
           systemctl --user enable --now mkd-api-8100.service
           for i in {1..20}; do
