@@ -10,7 +10,7 @@ from app.backup import backup
 
 EXCHANGES = {"NMS":"XNAS","NGM":"XNAS","NCM":"XNAS","NYQ":"XNYS","ASE":"XASE",
              "PAR":"XPAR","AMS":"XAMS","BRU":"XBRU","LIS":"XLIS","DUB":"XDUB",
-             "HEL":"XHEL","MIL":"XMIL","GER":"XETR","MCE":"XMAD","VIE":"XWBO"}
+             "HEL":"XHEL","MIL":"XMIL","GER":"XETR","MCE":"XMAD","VIE":"XWBO","ISE":"XDUB","ATH":"XATH","BTS":"BATS"}
 
 def main():
     p = argparse.ArgumentParser()
@@ -48,8 +48,8 @@ def main():
         return
     if not args.backup:
         p.error("--apply requires --backup")
-    if not approved:
-        raise ValueError("no verified candidates")
+    if {r["symbol"] for r in rejected} != {"CPG.L","IHG.L","EXSA.DE","SPY"} or len(approved) != 800:
+        raise ValueError("unexpected recovery coverage; refusing write")
     print(backup(destination=args.backup,database_url=url),flush=True)
     with engine.begin() as c:
         c.execute(text("LOCK TABLE instrument_identifiers IN SHARE ROW EXCLUSIVE MODE"))
