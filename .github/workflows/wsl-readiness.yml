@@ -103,3 +103,13 @@ jobs:
           print(json.dumps({'expected':len(rows),'verified':len(verified)}))
           if len(verified) != len(rows): raise SystemExit('Incomplete reference evidence; resume required')
           PY
+
+      - name: Test reference recovery on actual WSL database without writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DATABASE_URL='postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433'
+          export PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=60000'
+          export PYTHONPATH="$PWD"
+          "$HOME/market-data-hub/.venv/bin/python" -m py_compile scripts/recover_eur_usd_reference.py
+          "$HOME/market-data-hub/.venv/bin/python" -u scripts/recover_eur_usd_reference.py
