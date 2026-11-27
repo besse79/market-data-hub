@@ -61,3 +61,24 @@ def test_trading_currency_rejected_before_fetch(currency):
                     currency=currency, start=date(2026, 11, 13),
                     end=date(2026, 11, 14), fetch=fetch)
     fetch.assert_not_called()
+
+
+def test_pandas_volume_promoted_to_float(monkeypatch):
+    import pandas as pd
+    from app import collector
+    saved = []
+    monkeypatch.setattr(collector, "import_bar", lambda db, raw, dry_run=False: saved.append(raw) or "created")
+    frame = pd.DataFrame({"Open": [10.5], "High": [12.0], "Low": [9.0], "Close": [11.0], "Volume": [100]})
+    row = next(frame.iterrows())[1]
+    collect_one(object(), instrument_id=uuid4(), symbol="TEST", currency="USD",
+                start=date(2026, 11, 13), end=date(2026, 11, 14),
+                fetch=lambda *args: [(date(2026, 11, 13), row)])
+    assert saved[0]["volume"] == 100
+    assert type(saved[0]["volume"]) is int
+
+
+@pytest.mark.parametrize("value", [True, -1.0, 1.5, float("nan"), float("inf"), "100", 2**63])
+def test_invalid_yahoo_volume(value):
+    from app.collector import yahoo_volume
+    with pytest.raises(ValueError):
+        yahoo_volume(value)
