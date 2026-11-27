@@ -72,7 +72,7 @@ def import_bar(db: Session, raw: dict, *, dry_run: bool = False) -> str:
                 all(Decimal(getattr(last, k)) == getattr(b, k)
                     for k in ("open", "high", "low", "close")) and
                 last.volume == b.volume)
-        if same:
+        if same and not (b.provider == "yahoo" and last.quality_status == "legacy_unverified"):
             return "unchanged"
     if dry_run:
         return "revised" if rows else "created"
