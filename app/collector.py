@@ -6,6 +6,8 @@ import argparse
 import logging
 import time
 from datetime import date, datetime, timedelta, timezone
+from numbers import Real
+from app.validation import decimal, InvalidMarketData
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
@@ -35,6 +37,16 @@ def fetch_yahoo(symbol: str, start: date, end: date):
         result.append((idx.date(), row))
     return result
 
+def yahoo_volume(value):
+    # pandas iterrows promotes integer volume to floating point with OHLC.
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise InvalidMarketData("invalid Yahoo volume")
+    n = decimal(value, "volume")
+    if n < 0 or n != n.to_integral_value() or n > 2**63 - 1:
+        raise InvalidMarketData("invalid Yahoo volume")
+    return int(n)
+
+
 def collect_one(db: Session, *, instrument_id, symbol: str, currency: str,
                 start: date, end: date, dry_run=False, fetch=fetch_yahoo):
     if currency not in ("EUR", "USD"):
@@ -58,7 +70,7 @@ def collect_one(db: Session, *, instrument_id, symbol: str, currency: str,
         bar = yahoo_daily_record(
             instrument_id=str(instrument_id), session_date=session_date,
             currency=currency, open=row["Open"], high=row["High"],
-            low=row["Low"], close=row["Close"], volume=row["Volume"],
+            low=row["Low"], close=row["Close"], volume=yahoo_volume(row["Volume"]),
             observed_at=observed_at,
         )
         raw = dict(instrument_id=str(bar.instrument_id), session_date=bar.session_date.isoformat(),
