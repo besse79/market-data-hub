@@ -5,7 +5,6 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from sqlalchemy import create_engine, text
-import yfinance as yf
 from app.backup import backup
 
 EXCHANGES = {"NMS":"XNAS","NGM":"XNAS","NCM":"XNAS","NYQ":"XNYS","ASE":"XASE",
@@ -33,13 +32,24 @@ def main():
                           AND i.valid_to IS NULL)
           ORDER BY m.symbol
         """)).mappings().all()
+    evidence = {}
+    source = Path.home() / 'market-data-hub/evidence/yahoo-reference-recovery.jsonl'
+    for line in source.read_text().splitlines():
+        item = json.loads(line)
+        observed = datetime.fromisoformat(item['observed_at'])
+        age = (datetime.now(timezone.utc)-observed).total_seconds()
+        if not 0 <= age <= 86400 or EXCHANGES.get(item['exchange']) != item['mic']:
+            raise ValueError('stale or invalid reference evidence')
+        key = (item['symbol'],item['currency'],item['instrument_id'])
+        if key in evidence and evidence[key] != item['mic']:
+            raise ValueError('conflicting evidence')
+        evidence[key] = item['mic']
     approved, rejected = [], []
     for row in rows:
         try:
-            info = yf.Ticker(row["symbol"]).get_info()
-            mic = EXCHANGES.get(info.get("exchange"))
-            if not mic or info.get("currency") != row["currency"] or info.get("symbol") != row["symbol"] or info.get("quoteType") != "EQUITY":
-                raise ValueError("metadata mismatch or unsupported exchange")
+            mic = evidence.get((row["symbol"],row["currency"],str(row["instrument_id"])))
+            if not mic:
+                raise ValueError("missing verified evidence")
             approved.append(dict(row, mic=mic))
         except Exception as exc:
             rejected.append({"symbol":row["symbol"],"reason":type(exc).__name__})
