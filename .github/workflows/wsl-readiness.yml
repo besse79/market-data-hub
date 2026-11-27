@@ -58,36 +58,29 @@ jobs:
           SQL
           find "$HOME/cto-weinstein-trader" -maxdepth 4 -type f -iname '*manifest*.csv' -not -path '*/node_modules/*' -print 2>/dev/null | head -30
 
-      - name: Test reference recovery on actual WSL database without writes
+      - name: Restore verified backup into isolated database
         shell: bash
         run: |
           set -euo pipefail
-          export DATABASE_URL='postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433'
-          export PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=60000'
-          export PYTHONPATH="$PWD"
-          "$HOME/market-data-hub/.venv/bin/python" -m py_compile scripts/recover_eur_usd_reference.py
-          "$HOME/market-data-hub/.venv/bin/python" -u scripts/recover_eur_usd_reference.py
+          backup="$HOME/market-data-hub/backups/reference-20261127T213856Z.dump"
+          (cd "$(dirname "$backup")" && sha256sum -c "$(basename "$backup").sha256")
+          target="mkd_restore_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          export PGHOST=/var/run/postgresql PGPORT=5433
+          createdb "$target"
+          trap 'dropdb "$target"' EXIT
+          pg_restore --exit-on-error --no-owner --no-acl -d "$target" "$backup"
+          test "$(psql -X -At -d "$target" -c "SELECT count(*) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD')")" = 1001451
+          test "$(psql -X -At -d "$target" -c "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL AND currency IN ('EUR','USD')")" = 2
+          echo "Actual backup restore verified"
 
-      - name: Apply verified reference recovery with backup
+      - name: Refresh EUR USD historical bars
+        timeout-minutes: 90
         shell: bash
         run: |
           set -euo pipefail
-          umask 077
           export DATABASE_URL='postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433'
           export PYTHONPATH="$PWD"
           unset PGOPTIONS
-          db=(psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1)
-          before=$("${db[@]}" -Atc "SELECT count(*) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD')")
-          active=$("${db[@]}" -Atc "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL AND currency IN ('EUR','USD')")
-          if [ "$active" = 2 ]; then
-            backup="$HOME/market-data-hub/backups/reference-$(date -u +%Y%m%dT%H%M%SZ).dump"
-            "$HOME/market-data-hub/.venv/bin/python" -u scripts/recover_eur_usd_reference.py --apply --backup "$backup"
-            (cd "$(dirname "$backup")" && sha256sum -c "$(basename "$backup").sha256")
-          elif [ "$active" != 802 ]; then
-            echo "Unexpected active reference count: $active"; exit 1
-          fi
-          after=$("${db[@]}" -Atc "SELECT count(*) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD')")
-          test "$before" = "$after"
-          test "$("${db[@]}" -Atc "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL AND currency IN ('EUR','USD')")" = 802
-          "${db[@]}" -c "SELECT currency,count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL AND currency IN ('EUR','USD') GROUP BY currency"
-          echo "Historical bars unchanged: $after"
+          mkdir -p "$HOME/market-data-hub/evidence"
+          test "$(psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -Atc "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL AND currency IN ('EUR','USD')")" = 802
+          "$HOME/market-data-hub/.venv/bin/python" -m app.collect_all --start 2026-11-13 --end "$(date -u +%F)" --batch-size 50 --delay 3 --output "$HOME/market-data-hub/evidence/refresh-${GITHUB_RUN_ID}.json"
