@@ -24,4 +24,20 @@ jobs:
           SELECT currency, quality_status, count(*), max(session_date) FROM public.eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD') GROUP BY currency,quality_status;
           SELECT version_num FROM alembic_version;
           SQL
-          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8100/health
+          test -x "$HOME/market-data-hub/.venv/bin/uvicorn"
+          mkdir -p "$HOME/.config/systemd/user"
+          unit="$HOME/.config/systemd/user/mkd-api-8100.service"
+          if test -f "$unit"; then
+            cp -p "$unit" "$unit.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+            cmp -s "$unit" deploy/systemd/mkd-api-8100.service || { echo "Existing unit differs; refusing overwrite"; exit 1; }
+          else
+            install -m 644 deploy/systemd/mkd-api-8100.service "$unit"
+          fi
+          systemctl --user daemon-reload
+          systemctl --user enable --now mkd-api-8100.service
+          for i in {1..20}; do
+            if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8100/health/live; then exit 0; fi
+            sleep 1
+          done
+          systemctl --user status mkd-api-8100.service --no-pager || true
+          exit 1
