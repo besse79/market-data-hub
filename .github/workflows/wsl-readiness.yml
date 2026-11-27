@@ -6,6 +6,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: mkd-wsl-readiness
+  cancel-in-progress: false
 jobs:
   readiness:
     runs-on: [self-hosted, Linux]
@@ -58,16 +61,34 @@ jobs:
           SQL
           find "$HOME/cto-weinstein-trader" -maxdepth 4 -type f -iname '*manifest*.csv' -not -path '*/node_modules/*' -print 2>/dev/null | head -30
 
-      - name: Refresh EUR USD historical bars
-        timeout-minutes: 90
+      - name: Install daily collector from verified checkout
         shell: bash
         run: |
           set -euo pipefail
-          export DATABASE_URL='postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433'
-          export PYTHONPATH="$PWD"
-          unset PGOPTIONS
-          mkdir -p "$HOME/market-data-hub/evidence"
-          test "$(psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -Atc "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL AND currency IN ('EUR','USD')")" = 802
-          end="$(date -u -d tomorrow +%F)"
-          "$HOME/market-data-hub/.venv/bin/python" -m app.collector --start 2026-11-13 --end "$end" --limit 5 --delay 3 --dry-run
-          "$HOME/market-data-hub/.venv/bin/python" -m app.collect_all --start 2026-11-13 --end "$end" --batch-size 50 --delay 3 --output "$HOME/market-data-hub/evidence/refresh-${GITHUB_RUN_ID}.json"
+          umask 077
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          test -S "$XDG_RUNTIME_DIR/bus"
+          root="$HOME/market-data-hub"
+          report="$root/evidence/refresh-46078610552.json"
+          "$root/.venv/bin/python" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["success"] and d["processed"] == 802' "$report"
+          dest="$root/daily-runtime/$GITHUB_SHA"
+          test ! -e "$dest"
+          mkdir -p "$dest" "$HOME/.config/systemd/user"
+          cp -a app scripts "$dest/"
+          bash -n "$dest/scripts/daily_eod.sh"
+          "$root/.venv/bin/python" -m compileall -q "$dest/app"
+          backup="$root/backups/daily-units-$(date -u +%Y%m%dT%H%M%SZ)"
+          mkdir -p "$backup"
+          for unit in mkd-daily-eod.service mkd-daily-eod.timer; do
+            if test -e "$HOME/.config/systemd/user/$unit"; then
+              cp -a "$HOME/.config/systemd/user/$unit" "$backup/"
+            fi
+            sed "s|%h/market-data-hub/scripts/daily_eod.sh|$dest/scripts/daily_eod.sh|g" "deploy/systemd/$unit" > "$HOME/.config/systemd/user/$unit"
+          done
+          systemd-analyze --user verify "$HOME/.config/systemd/user/mkd-daily-eod.service" "$HOME/.config/systemd/user/mkd-daily-eod.timer"
+          systemctl --user daemon-reload
+          systemctl --user enable --now mkd-daily-eod.timer
+          systemctl --user is-active mkd-daily-eod.timer
+          systemctl --user list-timers mkd-daily-eod.timer --all --no-pager
+          PGOPTIONS='-c default_transaction_read_only=on' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT currency,quality_status,count(*),max(session_date) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD') GROUP BY currency,quality_status"
