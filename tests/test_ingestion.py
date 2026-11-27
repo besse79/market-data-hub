@@ -77,3 +77,17 @@ def test_provider_canonicalization_prevents_yahoo_provenance_bypass():
     row["provider"] = None
     with pytest.raises(InvalidMarketData):
         normalize_bar(row)
+
+
+@pytest.mark.parametrize("currency", ["ÉUR", "ＥＵＲ", "ßD", b"EUR", 123, None])
+def test_invalid_currency_identifier(currency):
+    row = sample()
+    row["currency"] = currency
+    with pytest.raises(InvalidMarketData, match="invalid provider or currency"):
+        normalize_bar(row)
+
+
+def test_ascii_currency_canonicalization():
+    row = sample()
+    row["currency"] = " eur "
+    assert normalize_bar(row).currency == "EUR"
