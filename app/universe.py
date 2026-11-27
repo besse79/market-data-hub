@@ -69,12 +69,22 @@ def import_universe(db: Session, rows: list[dict], *, dry_run: bool = False):
             db.flush()
     return result
 
+def trading_universe(rows):
+    """Preserve historical imports; restrict new Trading Factory imports to EUR/USD equities."""
+    selected = [r for r in rows if r["currency"] in {"EUR", "USD"} and r["asset_type"].lower() in {"equity", "stock"}]
+    if not selected:
+        raise ValueError("empty EUR/USD equity universe")
+    return selected
+
 def main():
     parser = argparse.ArgumentParser(description="Import MKD instruments from explicit manifest")
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--apply", action="store_true", help="Write to MKD (default is dry-run)")
+    parser.add_argument("--trading-factory", action="store_true", help="Restrict import to EUR/USD equities")
     args = parser.parse_args()
     rows = parse_manifest(args.manifest)
+    if args.trading_factory:
+        rows = trading_universe(rows)
     with SessionLocal.begin() as db:
         result = import_universe(db, rows, dry_run=not args.apply)
         print(result)
