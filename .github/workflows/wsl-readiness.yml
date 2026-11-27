@@ -9,7 +9,7 @@ permissions:
 jobs:
   readiness:
     runs-on: [self-hosted, Linux]
-    timeout-minutes: 10
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
       - name: Real MKD read-only readiness
@@ -57,3 +57,49 @@ jobs:
           SELECT provider,currency,count(*) FROM instrument_identifiers GROUP BY provider,currency ORDER BY provider,currency;
           SQL
           find "$HOME/cto-weinstein-trader" -maxdepth 4 -type f -iname '*manifest*.csv' -not -path '*/node_modules/*' -print 2>/dev/null | head -30
+
+      - name: Recover Yahoo reference evidence
+        timeout-minutes: 55
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/market-data-hub/evidence"
+          export DATABASE_URL='postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433'
+          "$HOME/market-data-hub/.venv/bin/python" - <<'PY'
+          import json, os, time
+          from pathlib import Path
+          from datetime import datetime, timezone
+          from sqlalchemy import create_engine, text
+          import yfinance as yf
+          exchanges = {'NYQ':'XNYS','NMS':'XNAS','NGM':'XNAS','NCM':'XNAS','ASE':'XASE','PCX':'ARCX','PAR':'XPAR','AMS':'XAMS','BRU':'XBRU','LIS':'XLIS','HEL':'XHEL','MIL':'XMIL','GER':'XETR','MCE':'XMAD','DUB':'XDUB'}
+          engine = create_engine(os.environ['DATABASE_URL'])
+          with engine.connect() as conn:
+              conn.execute(text('SET TRANSACTION READ ONLY'))
+              rows = conn.execute(text("SELECT symbol,currency,instrument_id FROM legacy_symbol_map WHERE currency IN ('EUR','USD') ORDER BY symbol")).mappings().all()
+          path = Path.home() / 'market-data-hub/evidence/yahoo-reference-recovery.jsonl'
+          verified = {}
+          if path.exists():
+              for line in path.read_text().splitlines():
+                  row = json.loads(line)
+                  if row.get('mic'): verified[(row['symbol'],row['currency'],row['instrument_id'])] = row
+          with path.open('a') as out:
+              for row in rows:
+                  key = (row['symbol'],row['currency'],str(row['instrument_id']))
+                  if key in verified: continue
+                  try:
+                      info = yf.Ticker(key[0]).get_info()
+                      mic = exchanges.get(info.get('exchange'))
+                      if info.get('symbol','').upper() != key[0].upper() or info.get('currency') != key[1] or info.get('quoteType') != 'EQUITY' or not mic:
+                          continue
+                      record = dict(symbol=key[0],currency=key[1],instrument_id=key[2],mic=mic,exchange=info['exchange'],observed_at=datetime.now(timezone.utc).isoformat())
+                      out.write(json.dumps(record)+'\n'); out.flush()
+                      verified[key] = record
+                  except Exception as exc:
+                      print(key[0], type(exc).__name__, flush=True)
+                      if 'RateLimit' in type(exc).__name__: break
+                  finally:
+                      time.sleep(0.5)
+          print(json.dumps({'expected':len(rows),'verified':len(verified)}))
+          if len(verified) != len(rows): raise SystemExit('Incomplete reference evidence; resume required')
+          PY
