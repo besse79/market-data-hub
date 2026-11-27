@@ -23,6 +23,11 @@ jobs:
           SELECT currency, count(*) FROM public.instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL GROUP BY currency ORDER BY currency;
           SELECT currency, quality_status, count(*), max(session_date) FROM public.eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD') GROUP BY currency,quality_status;
           SELECT version_num FROM alembic_version;
+          SELECT provider,currency,count(*) FROM public.instrument_identifiers GROUP BY provider,currency ORDER BY provider,currency;
+          SELECT b.currency,count(DISTINCT b.instrument_id) AS historical_instruments,count(DISTINCT i.instrument_id) AS mapped_instruments
+          FROM public.eod_bars b LEFT JOIN public.instrument_identifiers i ON i.instrument_id=b.instrument_id AND i.provider='yahoo' AND i.valid_to IS NULL
+          WHERE b.provider='yahoo' AND b.currency IN ('EUR','USD') GROUP BY b.currency;
+          SELECT count(*) FROM public.legacy_symbol_map;
           SQL
           test -x "$HOME/market-data-hub/.venv/bin/uvicorn"
           mkdir -p "$HOME/.config/systemd/user"
