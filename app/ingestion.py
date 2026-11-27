@@ -30,7 +30,7 @@ def normalize_bar(raw: dict) -> DailyBar:
         instrument_id = UUID(str(raw["instrument_id"]))
         session_date = date.fromisoformat(str(raw["session_date"]))
         provider = raw["provider"].strip().lower() if isinstance(raw["provider"], str) else ""
-        currency = str(raw["currency"]).strip().upper()
+        currency = raw["currency"].strip().upper() if isinstance(raw["currency"], str) and raw["currency"].isascii() else ""
         published_at = datetime.fromisoformat(str(raw["published_at"]).replace("Z", "+00:00"))
         first_available_at = datetime.fromisoformat(str(raw["first_available_at"]).replace("Z", "+00:00"))
         open_, high, low, close, volume = validate_bar(
@@ -38,7 +38,7 @@ def normalize_bar(raw: dict) -> DailyBar:
         )
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise InvalidMarketData(f"malformed EOD record: {exc}") from exc
-    if not provider or len(provider) > 40 or len(currency) != 3 or not currency.isalpha():
+    if not provider or len(provider) > 40 or len(currency) != 3 or not currency.isascii() or not currency.isalpha():
         raise InvalidMarketData("invalid provider or currency")
     if (published_at.tzinfo is None or published_at.utcoffset() is None or
             first_available_at.tzinfo is None or first_available_at.utcoffset() is None):
