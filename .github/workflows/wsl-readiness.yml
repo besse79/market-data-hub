@@ -114,3 +114,27 @@ jobs:
           export PYTHONPATH="$PWD"
           "$HOME/market-data-hub/.venv/bin/python" -m py_compile scripts/recover_eur_usd_reference.py
           "$HOME/market-data-hub/.venv/bin/python" -u scripts/recover_eur_usd_reference.py
+
+      - name: Apply verified reference recovery with backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          export DATABASE_URL='postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433'
+          export PYTHONPATH="$PWD"
+          unset PGOPTIONS
+          db=(psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1)
+          before=$("${db[@]}" -Atc "SELECT count(*) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD')")
+          active=$("${db[@]}" -Atc "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL AND currency IN ('EUR','USD')")
+          if [ "$active" = 2 ]; then
+            backup="$HOME/market-data-hub/backups/reference-$(date -u +%Y%m%dT%H%M%SZ).dump"
+            "$HOME/market-data-hub/.venv/bin/python" -u scripts/recover_eur_usd_reference.py --apply --backup "$backup"
+            (cd "$(dirname "$backup")" && sha256sum -c "$(basename "$backup").sha256")
+          elif [ "$active" != 802 ]; then
+            echo "Unexpected active reference count: $active"; exit 1
+          fi
+          after=$("${db[@]}" -Atc "SELECT count(*) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD')")
+          test "$before" = "$after"
+          test "$("${db[@]}" -Atc "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL AND currency IN ('EUR','USD')")" = 802
+          "${db[@]}" -c "SELECT currency,count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL AND currency IN ('EUR','USD') GROUP BY currency"
+          echo "Historical bars unchanged: $after"
