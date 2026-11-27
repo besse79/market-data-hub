@@ -1,0 +1,27 @@
+name: MKD WSL readiness
+on:
+  push:
+    branches: [fix/p0-yahoo-unverified-ingestion-20261123]
+    paths: ['.github/workflows/wsl-readiness.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  readiness:
+    runs-on: [self-hosted, Linux]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real MKD read-only readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -qi microsoft /proc/sys/kernel/osrelease
+          pg_isready -h /var/run/postgresql -p 5433
+          PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=30000' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT current_database(), current_setting('transaction_read_only');
+          SELECT currency, count(*) FROM public.instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL GROUP BY currency ORDER BY currency;
+          SELECT currency, quality_status, count(*), max(session_date) FROM public.eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD') GROUP BY currency,quality_status;
+          SELECT version_num FROM alembic_version;
+          SQL
+          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8100/health
