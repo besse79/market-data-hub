@@ -1,0 +1,31 @@
+name: MKD WSL operational gate
+on:
+  push:
+    branches: [fix/p0-yahoo-unverified-ingestion-20261123]
+    paths: [.github/workflows/wsl-operational-gate.yml]
+jobs:
+  acceptance:
+    runs-on: [self-hosted, Linux]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify WSL and actual MKD database
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -qi microsoft /proc/sys/kernel/osrelease
+          pg_isready -h /var/run/postgresql -p 5433
+          export PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=60000'
+          psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -p 5433 -d market_data_hub <<'SQL'
+          SELECT current_database(), current_setting('transaction_read_only');
+          SELECT currency,count(*) FROM instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL GROUP BY currency;
+          SELECT currency,quality_status,count(*),max(session_date) FROM eod_bars WHERE currency IN ('EUR','USD') GROUP BY currency,quality_status;
+          SELECT currency,count(DISTINCT instrument_id) FROM eod_bars WHERE currency IN ('EUR','USD') AND quality_status='valid' AND published_at IS NOT NULL AND first_available_at IS NOT NULL GROUP BY currency;
+          SQL
+      - name: Inspect existing Weinstein export tools without changing data
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -d "$HOME/cto-weinstein-trader/scripts"; then
+            find "$HOME/cto-weinstein-trader/scripts" -maxdepth 1 -type f \( -iname '*universe*' -o -iname '*manifest*' -o -iname '*export*' \) -printf '%f\n'
+          fi
