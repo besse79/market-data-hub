@@ -51,3 +51,13 @@ def test_empty_provider_response_is_not_success(monkeypatch):
                     start=date(2026, 11, 9), end=date(2026, 11, 14),
                     fetch=lambda *args: [])
     save.assert_not_called()
+
+
+@pytest.mark.parametrize("currency", ["GBP", "NOK", "CHF", "GBX"])
+def test_trading_currency_rejected_before_fetch(currency):
+    fetch = Mock()
+    with pytest.raises(ValueError, match="EUR/USD"):
+        collect_one(object(), instrument_id=uuid4(), symbol="TEST",
+                    currency=currency, start=date(2026, 11, 13),
+                    end=date(2026, 11, 14), fetch=fetch)
+    fetch.assert_not_called()
