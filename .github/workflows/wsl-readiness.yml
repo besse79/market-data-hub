@@ -28,6 +28,8 @@ jobs:
           FROM public.eod_bars b LEFT JOIN public.instrument_identifiers i ON i.instrument_id=b.instrument_id AND i.provider='yahoo' AND i.valid_to IS NULL
           WHERE b.provider='yahoo' AND b.currency IN ('EUR','USD') GROUP BY b.currency;
           SELECT count(*) FROM public.legacy_symbol_map;
+          SELECT currency,mic,mic_verified,count(*) FROM public.legacy_symbol_map WHERE currency IN ('EUR','USD') GROUP BY currency,mic,mic_verified ORDER BY currency,mic;
+          SELECT currency,count(*) FROM (SELECT currency,symbol FROM public.legacy_symbol_map WHERE currency IN ('EUR','USD') GROUP BY currency,symbol HAVING count(DISTINCT instrument_id)>1) conflicts GROUP BY currency;
           SQL
           test -x "$HOME/market-data-hub/.venv/bin/uvicorn"
           mkdir -p "$HOME/.config/systemd/user"
