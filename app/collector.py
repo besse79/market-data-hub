@@ -37,6 +37,8 @@ def fetch_yahoo(symbol: str, start: date, end: date):
 
 def collect_one(db: Session, *, instrument_id, symbol: str, currency: str,
                 start: date, end: date, dry_run=False, fetch=fetch_yahoo):
+    if currency not in ("EUR", "USD"):
+        raise ValueError("Trading Factory requires EUR/USD")
     if end <= start:
         raise ValueError("end must be after start")
     if end > datetime.now(timezone.utc).date() + timedelta(days=1):
@@ -75,7 +77,7 @@ def run(*, start: date, end: date, limit: int, dry_run: bool, delay: float, offs
         # Only active, currently valid Yahoo identifiers.
         at = datetime.now(timezone.utc)
         ids = db.execute(select(Identifier).where(
-            Identifier.provider == "yahoo", Identifier.valid_from <= at,
+            Identifier.provider == "yahoo", Identifier.currency.in_(("EUR", "USD")), Identifier.valid_from <= at,
             (Identifier.valid_to.is_(None) | (Identifier.valid_to > at))
         ).order_by(Identifier.symbol, Identifier.mic, Identifier.id).offset(offset).limit(limit)).scalars().all()
         for ident in ids:
