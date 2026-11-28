@@ -2,7 +2,7 @@ name: MKD WSL readiness
 on:
   push:
     branches: [fix/p0-yahoo-unverified-ingestion-20261123]
-    paths: ['.github/workflows/wsl-readiness.yml', 'scripts/recover_eur_usd_reference.py']
+    paths: ['.github/workflows/wsl-readiness.yml', 'scripts/audit_trading_observations.sql']
   workflow_dispatch:
 permissions:
   contents: read
