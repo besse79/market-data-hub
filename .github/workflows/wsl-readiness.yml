@@ -73,8 +73,10 @@ jobs:
           original="$root/evidence/refresh-46078610552.json"
           report="$root/evidence/retry-$GITHUB_RUN_ID.json"
           export DATABASE_URL="postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433"
-          PYTHONPATH="$PWD" "$root/.venv/bin/python" scripts/retry_failed_refresh.py "$original" "$report"
-          "$root/.venv/bin/python" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["success"] and d["processed"] == 802' "$report"
+          retry_status=0
+          PYTHONPATH="$PWD" "$root/.venv/bin/python" scripts/retry_failed_refresh.py "$original" "$report" || retry_status=$?
+          "$root/.venv/bin/python" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["expected"] == d["processed"] == 802 and not d["dry_run"] and d["retried"] > 0' "$report"
+          if test "$retry_status" != 0; then echo "::warning::Unresolved provider data; collection service may run but data readiness remains blocked"; fi
           dest="$root/daily-runtime/$GITHUB_SHA"
           test ! -e "$dest"
           mkdir -p "$dest" "$HOME/.config/systemd/user"
@@ -95,3 +97,4 @@ jobs:
           systemctl --user is-active mkd-daily-eod.timer
           systemctl --user list-timers mkd-daily-eod.timer --all --no-pager
           PGOPTIONS='-c default_transaction_read_only=on' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT currency,quality_status,count(*),max(session_date) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD') GROUP BY currency,quality_status"
+          exit "$retry_status"
