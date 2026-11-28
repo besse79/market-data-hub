@@ -78,3 +78,20 @@ jobs:
         run: |
           set -euo pipefail
           PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=60000' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -f scripts/audit_trading_observations.sql
+      - name: Test observation endpoint against actual WSL database read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DATABASE_URL='postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433'
+          export PGOPTIONS='-c default_transaction_read_only=on'
+          "$HOME/market-data-hub/.venv/bin/python" - <<'PY'
+          from datetime import datetime, timezone
+          from sqlalchemy import text
+          from app.db import SessionLocal
+          from app.main import observed_bars
+          with SessionLocal() as db:
+              row = db.execute(text("""SELECT i.instrument_id,b.session_date FROM instrument_identifiers i JOIN eod_bars b ON b.instrument_id=i.instrument_id AND b.currency=i.currency WHERE i.provider='yahoo' AND i.valid_to IS NULL AND i.currency IN ('EUR','USD') AND b.provider='yahoo' AND b.quality_status='staged_unverified' AND b.session_date < b.first_available_at::date ORDER BY b.session_date DESC LIMIT 1""")).one()
+              result = observed_bars(row.instrument_id,row.session_date,row.session_date,datetime.now(timezone.utc),limit=10,db=db)
+              assert result['items'] and result['paper_eligible'] is False and result['point_in_time_verified'] is False
+              print('OBSERVATION_READONLY_PASS', row.instrument_id, row.session_date)
+          PY
