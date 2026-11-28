@@ -1,0 +1,132 @@
+name: MKD WSL readiness
+on:
+  push:
+    branches: [fix/p0-yahoo-unverified-ingestion-20261123]
+    paths: ['.github/workflows/wsl-readiness.yml', 'scripts/audit_trading_observations.sql']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mkd-wsl-readiness
+  cancel-in-progress: false
+jobs:
+  readiness:
+    runs-on: [self-hosted, Linux]
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real MKD read-only readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -qi microsoft /proc/sys/kernel/osrelease
+          pg_isready -h /var/run/postgresql -p 5433
+          PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=30000' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT current_database(), current_setting('transaction_read_only');
+          SELECT currency, count(*) FROM public.instrument_identifiers WHERE provider='yahoo' AND valid_to IS NULL GROUP BY currency ORDER BY currency;
+          SELECT currency, quality_status, count(*), max(session_date) FROM public.eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD') GROUP BY currency,quality_status;
+          SELECT version_num FROM alembic_version;
+          SELECT provider,currency,count(*) FROM public.instrument_identifiers GROUP BY provider,currency ORDER BY provider,currency;
+          SELECT b.currency,count(DISTINCT b.instrument_id) AS historical_instruments,count(DISTINCT i.instrument_id) AS mapped_instruments
+          FROM public.eod_bars b LEFT JOIN public.instrument_identifiers i ON i.instrument_id=b.instrument_id AND i.provider='yahoo' AND i.valid_to IS NULL
+          WHERE b.provider='yahoo' AND b.currency IN ('EUR','USD') GROUP BY b.currency;
+          SELECT count(*) FROM public.legacy_symbol_map;
+          SELECT currency,mic,mic_verified,count(*) FROM public.legacy_symbol_map WHERE currency IN ('EUR','USD') GROUP BY currency,mic,mic_verified ORDER BY currency,mic;
+          SELECT currency,count(*) FROM (SELECT currency,symbol FROM public.legacy_symbol_map WHERE currency IN ('EUR','USD') GROUP BY currency,symbol HAVING count(DISTINCT instrument_id)>1) conflicts GROUP BY currency;
+          SQL
+          test -x "$HOME/market-data-hub/.venv/bin/uvicorn"
+          mkdir -p "$HOME/.config/systemd/user"
+          unit="$HOME/.config/systemd/user/mkd-api-8100.service"
+          if test -f "$unit"; then
+            cp -p "$unit" "$unit.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+            cmp -s "$unit" deploy/systemd/mkd-api-8100.service || { echo "Existing unit differs; refusing overwrite"; exit 1; }
+          else
+            install -m 644 deploy/systemd/mkd-api-8100.service "$unit"
+          fi
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          test -S "$XDG_RUNTIME_DIR/bus" || { echo "User systemd bus absent"; exit 1; }
+          systemctl --user daemon-reload
+          systemctl --user enable --now mkd-api-8100.service
+          for i in {1..20}; do
+            if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8100/health/live; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8100/health/live
+          systemctl --user is-active mkd-api-8100.service
+          PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=30000' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT column_name,data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='legacy_symbol_map' ORDER BY ordinal_position;
+          SELECT count(DISTINCT instrument_id),currency FROM eod_bars WHERE currency IN ('EUR','USD') GROUP BY currency;
+          SELECT provider,currency,count(*) FROM instrument_identifiers GROUP BY provider,currency ORDER BY provider,currency;
+          SQL
+          find "$HOME/cto-weinstein-trader" -maxdepth 4 -type f -iname '*manifest*.csv' -not -path '*/node_modules/*' -print 2>/dev/null | head -30
+
+      - name: Verify active universe and daily timer without writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          systemctl --user is-active mkd-daily-eod.timer
+          systemctl --user list-timers mkd-daily-eod.timer --all --no-pager
+          export PGOPTIONS='-c default_transaction_read_only=on'
+          count=$(psql -XAt -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND currency IN ('EUR','USD') AND valid_to IS NULL")
+          test "$count" = 801
+          psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT currency,quality_status,count(*),count(DISTINCT instrument_id),max(session_date) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD') GROUP BY currency,quality_status"
+      - name: Audit latest trading session provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=60000' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -f scripts/audit_trading_observations.sql
+      - name: Test observation endpoint against actual WSL database read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DATABASE_URL='postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433'
+          export PGOPTIONS='-c default_transaction_read_only=on'
+          "$HOME/market-data-hub/.venv/bin/python" - <<'PY'
+          from datetime import datetime, timezone
+          from sqlalchemy import text
+          from app.db import SessionLocal
+          from app.main import observed_bars
+          with SessionLocal() as db:
+              row = db.execute(text("""SELECT i.instrument_id,b.session_date FROM instrument_identifiers i JOIN eod_bars b ON b.instrument_id=i.instrument_id AND b.currency=i.currency WHERE i.provider='yahoo' AND i.valid_to IS NULL AND i.currency IN ('EUR','USD') AND b.provider='yahoo' AND b.quality_status='staged_unverified' AND b.session_date < b.first_available_at::date ORDER BY b.session_date DESC LIMIT 1""")).one()
+              result = observed_bars(row.instrument_id,row.session_date,row.session_date,datetime.now(timezone.utc),limit=10,db=db)
+              assert result['items'] and result['paper_eligible'] is False and result['point_in_time_verified'] is False
+              print('OBSERVATION_READONLY_PASS', row.instrument_id, row.session_date)
+          PY
+      - name: Audit EUR USD conversion readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=15000' psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -p 5433 -d market_data_hub <<'SQL'
+          SELECT base, quote, provider, quality_status, count(*), max(effective_date),
+                 count(*) FILTER (WHERE published_at IS NULL OR first_available_at IS NULL) AS missing_provenance
+          FROM fx_eod WHERE (base='EUR' AND quote='USD') OR (base='USD' AND quote='EUR')
+          GROUP BY base,quote,provider,quality_status;
+          SQL
+      - name: Verify initialized official ECB FX rates
+        if: github.ref == 'refs/heads/fix/p0-yahoo-unverified-ingestion-20261123'
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          root="$HOME/market-data-hub"
+          export DATABASE_URL='postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433'
+          # Initial import already completed in run 46140931411; verify without rewriting.
+          test -s "$root/backups/fx-46140931411.dump"
+          export PGOPTIONS='-c default_transaction_read_only=on'
+          day=$(psql -XAt -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT max(effective_date) FROM fx_eod WHERE base='EUR' AND quote='USD' AND provider='ecb' AND quality_status='valid'")
+          test -n "$day"
+          curl -fsSG http://127.0.0.1:8100/v1/fx --data-urlencode base=EUR --data-urlencode quote=USD --data-urlencode "date=$day" --data-urlencode "as_of=$(date -u +%FT%T.%NZ)" | "$root/.venv/bin/python" -c 'import json,sys; from decimal import Decimal; d=json.load(sys.stdin); assert d["provider"]=="ecb" and Decimal(str(d["rate"]))>0; print("ECB_FX_HTTP_PASS",d)'
+      - name: Verify installed FX scheduler without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          systemctl --user is-enabled mkd-daily-fx.timer
+          systemctl --user is-active mkd-daily-fx.timer
+          systemctl --user list-timers mkd-daily-fx.timer --all --no-pager
+          systemctl --user show mkd-daily-fx.service -p Result -p ExecMainStatus
+          test "$(systemctl --user show mkd-daily-fx.service -p Result --value)" = success

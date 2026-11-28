@@ -1,0 +1,15 @@
+[Unit]
+Description=MarketDataHub read-only local API (8100)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/market-data-hub
+Environment=DATABASE_URL=postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433
+ExecStart=%h/market-data-hub/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8100
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule MKD daily collection after US market close
+
+[Timer]
+OnCalendar=Tue..Sat *-*-* 00:30:00 Europe/Paris
+Persistent=true
+Unit=mkd-daily-eod.service
+
+[Install]
+WantedBy=timers.target
