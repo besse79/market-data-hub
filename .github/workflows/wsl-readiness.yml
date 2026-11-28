@@ -95,3 +95,31 @@ jobs:
               assert result['items'] and result['paper_eligible'] is False and result['point_in_time_verified'] is False
               print('OBSERVATION_READONLY_PASS', row.instrument_id, row.session_date)
           PY
+      - name: Deploy tested API module with rollback
+        if: github.ref == 'refs/heads/fix/p0-yahoo-unverified-ingestion-20261123'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$HOME/market-data-hub"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          backup="$root/backups/api-$GITHUB_RUN_ID"
+          mkdir -m 700 "$backup"
+          cp -p "$root/app/main.py" "$backup/main.py"
+          sha256sum "$backup/main.py" > "$backup/sha256"
+          sha256sum -c "$backup/sha256"
+          rollback() {
+            cp -p "$backup/main.py" "$root/app/main.py"
+            systemctl --user restart mkd-api-8100.service
+          }
+          trap rollback ERR
+          install -m 644 app/main.py "$root/app/main.py"
+          systemctl --user restart mkd-api-8100.service
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:8100/health/live; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8100/openapi.json | "$root/.venv/bin/python" -c 'import json,sys; assert "/v1/observations/bars" in json.load(sys.stdin)["paths"]'
+          cmp app/main.py "$root/app/main.py"
+          trap - ERR
+          echo "API_DEPLOYED_SHA=$GITHUB_SHA"
