@@ -61,20 +61,15 @@ jobs:
           SQL
           find "$HOME/cto-weinstein-trader" -maxdepth 4 -type f -iname '*manifest*.csv' -not -path '*/node_modules/*' -print 2>/dev/null | head -30
 
-      - name: Quarantine confirmed invalid symbol with verified backup
+      - name: Verify active universe and daily timer without writes
         shell: bash
         run: |
           set -euo pipefail
-          umask 077
-          root="$HOME/market-data-hub"
-          mkdir -p "$root/backups"
-          backup="$root/backups/quarantine-$GITHUB_RUN_ID.dump"
-          pg_dump -h /var/run/postgresql -p 5433 -Fc --no-owner --no-acl -f "$backup" market_data_hub
-          pg_restore --list "$backup" >/dev/null
-          sha256sum "$backup" > "$backup.sha256"
-          sha256sum -c "$backup.sha256"
-          psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -f scripts/quarantine_failed_symbol.sql
-          PGOPTIONS='-c default_transaction_read_only=on' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 <<'SQL'
-          SELECT currency,count(*) FROM instrument_identifiers WHERE provider='yahoo' AND currency IN ('EUR','USD') AND valid_to IS NULL GROUP BY currency;
-          SELECT symbol,valid_to FROM instrument_identifiers WHERE provider='yahoo' AND symbol='KESKOBU0126.HE';
-          SQL
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          systemctl --user is-active mkd-daily-eod.timer
+          systemctl --user list-timers mkd-daily-eod.timer --all --no-pager
+          export PGOPTIONS='-c default_transaction_read_only=on'
+          count=$(psql -XAt -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND currency IN ('EUR','USD') AND valid_to IS NULL")
+          test "$count" = 801
+          psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT currency,quality_status,count(*),count(DISTINCT instrument_id),max(session_date) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD') GROUP BY currency,quality_status"
