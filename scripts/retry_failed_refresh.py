@@ -2,7 +2,7 @@
 import argparse
 import json
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from sqlalchemy import select
 from app.db import SessionLocal
@@ -36,6 +36,15 @@ def main():
                 db.rollback()
                 remaining.append(symbol)
                 print(symbol, type(exc).__name__, str(exc), flush=True)
+                # Preserve valid earlier sessions without accepting the bad final session.
+                if 'incomplete OHLCV' in str(exc) and (end - timedelta(days=1)).isoformat() in str(exc):
+                    try:
+                        stats = collect_one(db, instrument_id=instrument_id, symbol=symbol, currency=currency, start=start, end=end-timedelta(days=1))
+                        db.commit()
+                        print(symbol, 'earlier sessions recovered; final session unresolved', stats, flush=True)
+                    except Exception as earlier:
+                        db.rollback()
+                        print(symbol, 'earlier sessions unresolved', str(earlier), flush=True)
             time.sleep(3)
     result = {**report, "failed": remaining, "success": not remaining, "retried": len(failed)}
     args.output.write_text(json.dumps(result, indent=2) + "\n")
