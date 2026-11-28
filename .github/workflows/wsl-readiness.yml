@@ -147,3 +147,57 @@ jobs:
           day=$(psql -XAt -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT max(effective_date) FROM fx_eod WHERE base='EUR' AND quote='USD' AND provider='ecb' AND quality_status='valid'")
           test -n "$day"
           curl -fsSG http://127.0.0.1:8100/v1/fx --data-urlencode base=EUR --data-urlencode quote=USD --data-urlencode "date=$day" --data-urlencode "as_of=$(date -u +%FT%T.%NZ)" | "$root/.venv/bin/python" -c 'import json,sys; from decimal import Decimal; d=json.load(sys.stdin); assert d["provider"]=="ecb" and Decimal(str(d["rate"]))>0; print("ECB_FX_HTTP_PASS",d)'
+      - name: Install independent daily ECB FX timer
+        if: github.ref == 'refs/heads/fix/p0-yahoo-unverified-ingestion-20261123'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$HOME/market-data-hub"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          units="$HOME/.config/systemd/user"
+          runtime="$root/fx-runtime/$GITHUB_SHA"
+          mkdir -p "$runtime"
+          cp -a app "$runtime/"
+          "$root/.venv/bin/python" -m compileall -q "$runtime/app"
+          backup="$root/backups/fx-units-$GITHUB_RUN_ID"
+          mkdir -m 700 "$backup"
+          for name in mkd-daily-fx.service mkd-daily-fx.timer; do
+            if test -f "$units/$name"; then cp -p "$units/$name" "$backup/$name"; fi
+          done
+          rollback() {
+            systemctl --user disable --now mkd-daily-fx.timer || true
+            for name in mkd-daily-fx.service mkd-daily-fx.timer; do
+              if test -f "$backup/$name"; then cp -p "$backup/$name" "$units/$name"; else rm -f "$units/$name"; fi
+            done
+            systemctl --user daemon-reload
+            if test -f "$backup/mkd-daily-fx.timer"; then systemctl --user enable --now mkd-daily-fx.timer; fi
+          }
+          trap rollback ERR
+          cat > "$units/mkd-daily-fx.service" <<EOF
+          [Unit]
+          Description=MKD official ECB EUR USD reference rates
+          [Service]
+          Type=oneshot
+          WorkingDirectory=$runtime
+          Environment=DATABASE_URL=postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433
+          ExecStart=$root/.venv/bin/python -m app.collect_fx
+          NoNewPrivileges=true
+          TimeoutStartSec=120
+          EOF
+          cat > "$units/mkd-daily-fx.timer" <<'EOF'
+          [Unit]
+          Description=Daily ECB reference rate collection
+          [Timer]
+          OnCalendar=Mon..Fri *-*-* 18:30:00 Europe/Paris
+          Persistent=true
+          [Install]
+          WantedBy=timers.target
+          EOF
+          systemd-analyze --user verify "$units/mkd-daily-fx.service" "$units/mkd-daily-fx.timer"
+          systemctl --user daemon-reload
+          systemctl --user enable --now mkd-daily-fx.timer
+          systemctl --user start mkd-daily-fx.service
+          systemctl --user is-active mkd-daily-fx.timer
+          systemctl --user list-timers mkd-daily-fx.timer --all --no-pager
+          trap - ERR
