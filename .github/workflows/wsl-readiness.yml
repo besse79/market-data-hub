@@ -73,3 +73,8 @@ jobs:
           count=$(psql -XAt -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM instrument_identifiers WHERE provider='yahoo' AND currency IN ('EUR','USD') AND valid_to IS NULL")
           test "$count" = 801
           psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT currency,quality_status,count(*),count(DISTINCT instrument_id),max(session_date) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD') GROUP BY currency,quality_status"
+      - name: Audit latest trading session provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=60000' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -f scripts/audit_trading_observations.sql
