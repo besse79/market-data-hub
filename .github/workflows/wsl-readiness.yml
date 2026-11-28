@@ -123,3 +123,13 @@ jobs:
           cmp app/main.py "$root/app/main.py"
           trap - ERR
           echo "API_DEPLOYED_SHA=$GITHUB_SHA"
+      - name: Audit EUR USD conversion readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=15000' psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -p 5433 -d market_data_hub <<'SQL'
+          SELECT base, quote, provider, quality_status, count(*), max(effective_date),
+                 count(*) FILTER (WHERE published_at IS NULL OR first_available_at IS NULL) AS missing_provenance
+          FROM fx_eod WHERE (base='EUR' AND quote='USD') OR (base='USD' AND quote='EUR')
+          GROUP BY base,quote,provider,quality_status;
+          SQL
