@@ -61,40 +61,20 @@ jobs:
           SQL
           find "$HOME/cto-weinstein-trader" -maxdepth 4 -type f -iname '*manifest*.csv' -not -path '*/node_modules/*' -print 2>/dev/null | head -30
 
-      - name: Install daily collector from verified checkout
+      - name: Quarantine confirmed invalid symbol with verified backup
         shell: bash
         run: |
           set -euo pipefail
           umask 077
-          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
-          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-          test -S "$XDG_RUNTIME_DIR/bus"
           root="$HOME/market-data-hub"
-          original="$root/evidence/refresh-46078610552.json"
-          report="$root/evidence/retry-$GITHUB_RUN_ID.json"
-          export DATABASE_URL="postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433"
-          retry_status=0
-          PYTHONPATH="$PWD" "$root/.venv/bin/python" scripts/retry_failed_refresh.py "$original" "$report" || retry_status=$?
-          "$root/.venv/bin/python" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["expected"] == d["processed"] == 802 and not d["dry_run"] and d["retried"] > 0' "$report"
-          if test "$retry_status" != 0; then echo "::warning::Unresolved provider data; collection service may run but data readiness remains blocked"; fi
-          dest="$root/daily-runtime/$GITHUB_SHA"
-          test ! -e "$dest"
-          mkdir -p "$dest" "$HOME/.config/systemd/user"
-          cp -a app scripts "$dest/"
-          bash -n "$dest/scripts/daily_eod.sh"
-          "$root/.venv/bin/python" -m compileall -q "$dest/app"
-          backup="$root/backups/daily-units-$(date -u +%Y%m%dT%H%M%SZ)"
-          mkdir -p "$backup"
-          for unit in mkd-daily-eod.service mkd-daily-eod.timer; do
-            if test -e "$HOME/.config/systemd/user/$unit"; then
-              cp -a "$HOME/.config/systemd/user/$unit" "$backup/"
-            fi
-            sed "s|%h/market-data-hub/scripts/daily_eod.sh|$dest/scripts/daily_eod.sh|g" "deploy/systemd/$unit" > "$HOME/.config/systemd/user/$unit"
-          done
-          systemd-analyze --user verify "$HOME/.config/systemd/user/mkd-daily-eod.service" "$HOME/.config/systemd/user/mkd-daily-eod.timer"
-          systemctl --user daemon-reload
-          systemctl --user enable --now mkd-daily-eod.timer
-          systemctl --user is-active mkd-daily-eod.timer
-          systemctl --user list-timers mkd-daily-eod.timer --all --no-pager
-          PGOPTIONS='-c default_transaction_read_only=on' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT currency,quality_status,count(*),max(session_date) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD') GROUP BY currency,quality_status"
-          exit "$retry_status"
+          mkdir -p "$root/backups"
+          backup="$root/backups/quarantine-$GITHUB_RUN_ID.dump"
+          pg_dump -h /var/run/postgresql -p 5433 -Fc --no-owner --no-acl -f "$backup" market_data_hub
+          pg_restore --list "$backup" >/dev/null
+          sha256sum "$backup" > "$backup.sha256"
+          sha256sum -c "$backup.sha256"
+          psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -f scripts/quarantine_failed_symbol.sql
+          PGOPTIONS='-c default_transaction_read_only=on' psql -X -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT currency,count(*) FROM instrument_identifiers WHERE provider='yahoo' AND currency IN ('EUR','USD') AND valid_to IS NULL GROUP BY currency;
+          SELECT symbol,valid_to FROM instrument_identifiers WHERE provider='yahoo' AND symbol='KESKOBU0126.HE';
+          SQL
