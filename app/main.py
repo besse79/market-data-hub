@@ -129,3 +129,39 @@ def legacy_resolve(symbol: str, db: Session = Depends(session)):
     if row is None:
         raise HTTPException(404, "legacy symbol not found")
     return dict(row)
+
+@app.get("/v1/observations/bars")
+def observed_bars(instrument_id: UUID, start: date, end: date, as_of: datetime,
+                  limit: int = Query(500, ge=1, le=1000), db: Session = Depends(session)):
+    """Observed Yahoo data for current research, not certified historical PIT."""
+    at = cutoff(as_of)
+    if end < start or end >= at.date():
+        raise HTTPException(422, "only completed prior UTC dates allowed")
+    active = db.scalar(select(Identifier.id).where(
+        Identifier.instrument_id == instrument_id, Identifier.provider == "yahoo",
+        Identifier.currency.in_(("EUR", "USD")), Identifier.valid_from <= at,
+        (Identifier.valid_to.is_(None) | (Identifier.valid_to > at))).limit(1))
+    if active is None:
+        raise HTTPException(404, "no active EUR/USD Yahoo identifier")
+    latest = select(Bar.session_date, func.max(Bar.revision).label("revision")).where(
+        Bar.instrument_id == instrument_id, Bar.provider == "yahoo",
+        Bar.session_date.between(start, end), Bar.ingested_at <= at
+    ).group_by(Bar.session_date).subquery()
+    rows = db.scalars(select(Bar).join(latest, and_(
+        Bar.session_date == latest.c.session_date, Bar.revision == latest.c.revision
+    )).where(Bar.instrument_id == instrument_id, Bar.provider == "yahoo",
+        Bar.quality_status == "staged_unverified", Bar.currency.in_(("EUR", "USD")),
+        Bar.first_available_at <= at, Bar.published_at <= Bar.first_available_at,
+        Bar.session_date < func.date(Bar.first_available_at),
+        Bar.open > 0, Bar.close > 0, Bar.low > 0, Bar.volume >= 0,
+        Bar.high >= func.greatest(Bar.open, Bar.close, Bar.low),
+        Bar.low <= func.least(Bar.open, Bar.close, Bar.high)
+    ).order_by(Bar.session_date).limit(limit + 1)).all()
+    if len(rows) > limit:
+        raise HTTPException(422, "result exceeds limit")
+    return {"instrument_id": instrument_id, "as_of": at,
+            "point_in_time_verified": False, "paper_eligible": False,
+            "items": [{"date": r.session_date, "open": r.open, "high": r.high,
+                       "low": r.low, "close": r.close, "volume": r.volume,
+                       "currency": r.currency, "observed_at": r.first_available_at,
+                       "quality_status": r.quality_status} for r in rows]}

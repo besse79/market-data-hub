@@ -20,7 +20,7 @@ def collect_all(*, start: date, end: date, batch_size: int = 100,
         with SessionLocal() as db:
             now = datetime.now(timezone.utc)
             count = db.scalar(select(func.count()).select_from(Identifier).where(
-                Identifier.provider == "yahoo", Identifier.valid_from <= now,
+                Identifier.provider == "yahoo", Identifier.currency.in_(("EUR", "USD")), Identifier.valid_from <= now,
                 (Identifier.valid_to.is_(None) | (Identifier.valid_to > now))
             ))
     if not isinstance(count, int) or count < 1:

@@ -1,0 +1,9 @@
+[Unit]
+Description=MKD daily EUR USD market data collection
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/market-data-hub
+ExecStart=/bin/bash %h/market-data-hub/scripts/daily_eod.sh
+TimeoutStartSec=90min
+NoNewPrivileges=true

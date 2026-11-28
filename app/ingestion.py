@@ -29,8 +29,8 @@ def normalize_bar(raw: dict) -> DailyBar:
     try:
         instrument_id = UUID(str(raw["instrument_id"]))
         session_date = date.fromisoformat(str(raw["session_date"]))
-        provider = str(raw["provider"]).strip()
-        currency = str(raw["currency"]).strip().upper()
+        provider = raw["provider"].strip().lower() if isinstance(raw["provider"], str) else ""
+        currency = raw["currency"].strip().upper() if isinstance(raw["currency"], str) and raw["currency"].isascii() else ""
         published_at = datetime.fromisoformat(str(raw["published_at"]).replace("Z", "+00:00"))
         first_available_at = datetime.fromisoformat(str(raw["first_available_at"]).replace("Z", "+00:00"))
         open_, high, low, close, volume = validate_bar(
@@ -38,7 +38,7 @@ def normalize_bar(raw: dict) -> DailyBar:
         )
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise InvalidMarketData(f"malformed EOD record: {exc}") from exc
-    if not provider or len(provider) > 40 or len(currency) != 3 or not currency.isalpha():
+    if not provider or len(provider) > 40 or len(currency) != 3 or not currency.isascii() or not currency.isalpha():
         raise InvalidMarketData("invalid provider or currency")
     if (published_at.tzinfo is None or published_at.utcoffset() is None or
             first_available_at.tzinfo is None or first_available_at.utcoffset() is None):
@@ -72,7 +72,7 @@ def import_bar(db: Session, raw: dict, *, dry_run: bool = False) -> str:
                 all(Decimal(getattr(last, k)) == getattr(b, k)
                     for k in ("open", "high", "low", "close")) and
                 last.volume == b.volume)
-        if same:
+        if same and not (b.provider == "yahoo" and last.quality_status == "legacy_unverified"):
             return "unchanged"
     if dry_run:
         return "revised" if rows else "created"
@@ -82,7 +82,7 @@ def import_bar(db: Session, raw: dict, *, dry_run: bool = False) -> str:
         currency=b.currency, open=b.open, high=b.high, low=b.low,
         close=b.close, volume=b.volume, published_at=b.published_at,
         first_available_at=b.first_available_at, ingested_at=datetime.now(timezone.utc),
-        quality_status="valid",
+        quality_status="staged_unverified" if b.provider == "yahoo" else "valid",
     ))
     db.flush()
     return "revised" if rows else "created"
