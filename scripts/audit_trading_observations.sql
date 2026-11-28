@@ -16,5 +16,10 @@ WITH active AS (
  FROM active a LEFT JOIN latest b ON a.instrument_id=b.instrument_id AND b.session_date=DATE '2026-11-27'
 )
 SELECT currency,audit_status,count(*) FROM checked GROUP BY currency,audit_status ORDER BY currency,audit_status;
+SELECT i.symbol,i.mic,i.currency,max(b.session_date) AS latest_session
+FROM instrument_identifiers i LEFT JOIN eod_bars b ON b.instrument_id=i.instrument_id AND b.provider='yahoo'
+WHERE i.provider='yahoo' AND i.currency IN ('EUR','USD') AND i.valid_to IS NULL
+GROUP BY i.id,i.symbol,i.mic,i.currency
+HAVING max(b.session_date) IS NULL OR max(b.session_date)<DATE '2026-11-27';
 SELECT quality_status,currency,count(*),count(DISTINCT instrument_id) FROM eod_bars WHERE provider='yahoo' AND currency IN ('EUR','USD') GROUP BY quality_status,currency;
 ROLLBACK;
