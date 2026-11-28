@@ -133,7 +133,7 @@ jobs:
           FROM fx_eod WHERE (base='EUR' AND quote='USD') OR (base='USD' AND quote='EUR')
           GROUP BY base,quote,provider,quality_status;
           SQL
-      - name: Backup and initialize official ECB FX rates
+      - name: Verify initialized official ECB FX rates
         if: github.ref == 'refs/heads/fix/p0-yahoo-unverified-ingestion-20261123'
         shell: bash
         run: |
@@ -141,13 +141,9 @@ jobs:
           umask 077
           root="$HOME/market-data-hub"
           export DATABASE_URL='postgresql+psycopg://benoit@/market_data_hub?host=/var/run/postgresql&port=5433'
-          backup="$root/backups/fx-$GITHUB_RUN_ID.dump"
-          pg_dump -Fc -h /var/run/postgresql -p 5433 -d market_data_hub -f "$backup"
-          pg_restore --list "$backup" >/dev/null
-          sha256sum "$backup" > "$backup.sha256"
-          sha256sum -c "$backup.sha256"
-          "$root/.venv/bin/python" -m app.collect_fx
+          # Initial import already completed in run 46140931411; verify without rewriting.
+          test -s "$root/backups/fx-46140931411.dump"
           export PGOPTIONS='-c default_transaction_read_only=on'
           day=$(psql -XAt -h /var/run/postgresql -p 5433 -d market_data_hub -v ON_ERROR_STOP=1 -c "SELECT max(effective_date) FROM fx_eod WHERE base='EUR' AND quote='USD' AND provider='ecb' AND quality_status='valid'")
           test -n "$day"
-          curl -fsSG http://127.0.0.1:8100/v1/fx --data-urlencode base=EUR --data-urlencode quote=USD --data-urlencode "date=$day" --data-urlencode "as_of=$(date -u +%FT%TZ)" | "$root/.venv/bin/python" -c 'import json,sys; from decimal import Decimal; d=json.load(sys.stdin); assert d["provider"]=="ecb" and Decimal(str(d["rate"]))>0; print("ECB_FX_HTTP_PASS",d)'
+          curl -fsSG http://127.0.0.1:8100/v1/fx --data-urlencode base=EUR --data-urlencode quote=USD --data-urlencode "date=$day" --data-urlencode "as_of=$(date -u +%FT%T.%NZ)" | "$root/.venv/bin/python" -c 'import json,sys; from decimal import Decimal; d=json.load(sys.stdin); assert d["provider"]=="ecb" and Decimal(str(d["rate"]))>0; print("ECB_FX_HTTP_PASS",d)'
